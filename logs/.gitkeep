@@ -1,0 +1,3 @@
+# VendoLink Logs directory
+# PHP errors, mail stubs, and activity log files are stored here.
+# Do NOT commit real log files to version control.

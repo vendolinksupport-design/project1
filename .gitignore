@@ -1,0 +1,23 @@
+# Vendor / Local dependencies
+/vendor/
+
+# Environment / Local Overrides
+.env
+.env.local
+
+# OS & Editor Metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Scratch files & System Logs
+/scratch/
+*.log
+logs/setup.lock
+setup.lock
+
+# Build Artifacts
+*.elf
+*.map
+

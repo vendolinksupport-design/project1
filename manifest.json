@@ -1,0 +1,18 @@
+{
+  "name": "VendoLink IoT",
+  "short_name": "VendoLink",
+  "description": "VendoLink IoT Monitoring & Sales Audit System",
+  "start_url": "/vendolink_claude_v1/dashboard/index.php",
+  "display": "standalone",
+  "background_color": "#0b1329",
+  "theme_color": "#0eac5e",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230eac5e'/><text y='.75em' x='15' font-size='70' fill='white'>⚡</text></svg>",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

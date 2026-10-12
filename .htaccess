@@ -1,0 +1,90 @@
+# Apache .htaccess — VendoLink
+# Provides security headers, directory protection, and clean URLs.
+
+# ============================================================
+# Engine ON
+# ============================================================
+Options -Indexes
+Options -MultiViews
+
+# ============================================================
+# Rewrite Engine
+# ============================================================
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /vendolink_claude_v1/
+
+    # Redirect HTTP to HTTPS in production (uncomment when SSL is configured)
+    # RewriteCond %{HTTPS} off
+    # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # Block direct access to sensitive directories
+    RewriteRule ^(config|models|controllers|middleware|includes|logs|database|routes|scratch|tests)(/|$) - [F,L]
+
+    # Block emergency/setup scripts from direct web access
+    RewriteRule ^(setup|quick_seed)\.php$ - [F,L]
+
+    # Allow existing files and directories
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+
+    # Route everything else to index.php
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# ============================================================
+# Security Headers
+# ============================================================
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+
+    # Remove server signature
+    Header unset Server
+    Header always unset X-Powered-By
+</IfModule>
+
+# ============================================================
+# Protect Sensitive Files
+# ============================================================
+<FilesMatch "(\.(sql|log|lock|env|json|md|git|htpasswd)|(setup|quick_seed)\.php)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# ============================================================
+# File Type Settings
+# ============================================================
+<IfModule mod_mime.c>
+    AddType application/javascript .js
+    AddType text/css               .css
+    AddCharset UTF-8 .html .php .css .js
+</IfModule>
+
+# ============================================================
+# Browser Caching for Assets
+# ============================================================
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css             "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType image/png            "access plus 1 month"
+    ExpiresByType image/jpeg           "access plus 1 month"
+    ExpiresByType image/svg+xml        "access plus 1 month"
+    ExpiresByType image/gif            "access plus 1 month"
+    ExpiresByType image/x-icon         "access plus 1 year"
+</IfModule>
+
+# ============================================================
+# PHP Settings (override in production)
+# ============================================================
+<IfModule mod_php.c>
+    php_flag  display_errors Off
+    php_value upload_max_filesize 8M
+    php_value post_max_size 10M
+    php_value session.cookie_httponly On
+    php_value session.cookie_samesite Lax
+</IfModule>
