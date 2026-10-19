@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../middleware/auth.php';
 require_once __DIR__ . '/../../models/AdminDashboard.php';
+require_once __DIR__ . '/../../models/Machine.php';
 
 require_admin();
 
@@ -25,7 +26,7 @@ $flashSuccess   = '';
 $flashError     = '';
 
 // Handle POST actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     csrf_verify();
     $action = $_POST['action'] ?? '';
     $userId = (int)($_POST['user_id'] ?? 0);
@@ -66,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$customers = $dashboardModel->getAllCustomers();
+$customers = $dashboardModel->getAllCustomersWithMachines();
 $metrics   = $dashboardModel->getSummaryMetrics();
 
 $pageTitle   = term('customers');
@@ -161,32 +162,103 @@ $currentDir  = 'customers';
             white-space: nowrap;
         }
 
-        .admin-table {
-            color: #f8fafc;
+        .table.admin-table {
+            --bs-table-bg: transparent;
+            --bs-table-color: #f8fafc;
+            --bs-table-border-color: rgba(148, 163, 184, 0.12);
+            --bs-table-hover-bg: rgba(30, 41, 59, 0.6);
+            --bs-table-hover-color: #f8fafc;
+            color: #f8fafc !important;
             width: 100%;
             margin-bottom: 0;
+            background-color: transparent !important;
         }
 
-        .admin-table th {
-            background: #1e293b;
-            color: #94a3b8;
+        .table.admin-table > :not(caption) > * > * {
+            background-color: transparent !important;
+            color: #f8fafc !important;
+            box-shadow: none !important;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1) !important;
+        }
+
+        .table.admin-table th {
+            background: #1e293b !important;
+            color: #94a3b8 !important;
             font-size: 0.75rem;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.06em;
             padding: 0.85rem 1rem;
-            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.18) !important;
         }
 
-        .admin-table td {
-            padding: 0.8rem 1rem;
-            border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+        .table.admin-table td {
+            padding: 0.85rem 1rem;
             vertical-align: middle;
-            background: transparent;
+            background-color: transparent !important;
+            color: #f8fafc !important;
         }
 
-        .admin-table tbody tr:hover {
-            background: rgba(30, 41, 59, 0.5);
+        .table.admin-table tbody tr.customer-row {
+            cursor: pointer;
+            transition: background-color 0.15s ease-in-out;
+        }
+
+        .table.admin-table tbody tr.customer-row:hover > * {
+            background-color: rgba(30, 41, 59, 0.8) !important;
+        }
+
+        .table.admin-table tbody tr.customer-row[aria-expanded="true"] > * {
+            background-color: rgba(30, 41, 59, 0.95) !important;
+            border-bottom-color: transparent !important;
+        }
+
+        .table.admin-table tbody tr.customer-row .chevron-icon {
+            transition: transform 0.25s ease-in-out;
+            display: inline-block;
+        }
+
+        .table.admin-table tbody tr.customer-row[aria-expanded="true"] .chevron-icon {
+            transform: rotate(180deg);
+            color: #38bdf8 !important;
+        }
+
+        .table.admin-table tbody tr.customer-drawer-row:hover > * {
+            background-color: transparent !important;
+        }
+
+        .customer-drawer-row > td {
+            padding: 0 !important;
+            background: transparent !important;
+            border-top: none !important;
+        }
+
+        .customer-drawer-content {
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(10, 15, 29, 0.98) 100%);
+            border-bottom: 2px solid rgba(56, 189, 248, 0.25);
+            box-shadow: inset 0 6px 12px -4px rgba(0, 0, 0, 0.4);
+        }
+
+        .machine-mini-card {
+            background: rgba(30, 41, 59, 0.55);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-radius: 8px;
+            padding: 0.85rem 1rem;
+            transition: border-color 0.15s, background-color 0.15s, transform 0.15s;
+        }
+
+        .machine-mini-card:hover {
+            background: rgba(30, 41, 59, 0.85);
+            border-color: rgba(56, 189, 248, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .extra-small {
+            font-size: 0.75rem;
+        }
+
+        .tracking-wide {
+            letter-spacing: 0.05em;
         }
 
         .avatar-circle {
@@ -275,41 +347,42 @@ $currentDir  = 'customers';
 
             <!-- Customers Table Card -->
             <div class="admin-card">
-                <div class="d-flex align-items-center justify-content-between mb-3">
+                <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between mb-3 gap-2">
                     <h5 class="fw-bold text-light mb-0"><i class="bi bi-people-fill me-2 text-info"></i><?= term('customers') ?></h5>
+                    <span class="text-secondary small"><i class="bi bi-info-circle me-1"></i>Click any customer to view connected machines & details</span>
                 </div>
 
                 <div class="table-responsive">
-                    <table class="table admin-table mb-0">
+                    <table class="table table-dark admin-table mb-0">
                         <thead>
                             <tr>
-                                <th>Customer</th>
-                                <th>Email / Username</th>
-                                <th>Status</th>
-                                <th>Verification</th>
-                                <th>Machines</th>
-                                <th>Registered</th>
-                                <th>Actions</th>
+                                <th style="width: 35%;">Owner / Customer</th>
+                                <th style="width: 30%;">Email & Username</th>
+                                <th style="width: 15%;">Account Status</th>
+                                <th style="width: 20%;" class="text-end pe-3">Machines &bull; Details</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if (empty($customers)): ?>
                             <tr>
-                                <td colspan="7" class="text-center py-5 text-secondary">
+                                <td colspan="4" class="text-center py-5 text-secondary">
                                     <i class="bi bi-inbox fs-2 d-block mb-2 text-muted"></i>No registered customers found.
                                 </td>
                             </tr>
                             <?php else: ?>
                                 <?php foreach ($customers as $c): ?>
-                                <tr>
+                                <tr class="customer-row" data-bs-toggle="collapse" data-bs-target="#customerDrawer<?= (int)$c['id'] ?>" aria-expanded="false" aria-controls="customerDrawer<?= (int)$c['id'] ?>">
                                     <td>
                                         <div class="d-flex align-items-center gap-3">
                                             <div class="avatar-circle">
                                                 <?= strtoupper(mb_substr($c['full_name'] ?? 'U', 0, 1)) ?>
                                             </div>
                                             <div>
-                                                <div class="fw-semibold text-light"><?= e($c['full_name']) ?></div>
-                                                <div class="small text-secondary">ID #<?= (int)$c['id'] ?></div>
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <span class="fw-bold text-light"><?= e($c['full_name']) ?></span>
+                                                    <i class="bi bi-chevron-down chevron-icon text-muted small"></i>
+                                                </div>
+                                                <div class="small text-secondary">Owner ID #<?= (int)$c['id'] ?></div>
                                             </div>
                                         </div>
                                     </td>
@@ -328,101 +401,178 @@ $currentDir  = 'customers';
                                             </span>
                                         <?php endif; ?>
                                     </td>
-                                    <td>
-                                        <?php if (!empty($c['email_verified'])): ?>
-                                            <span class="text-success small fw-semibold"><i class="bi bi-patch-check-fill me-1"></i>Verified</span>
-                                        <?php else: ?>
-                                            <span class="text-warning small fw-semibold"><i class="bi bi-clock-history me-1"></i>Pending OTP</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-dark border border-secondary text-info rounded-pill px-2.5 py-1 font-monospace">
-                                            <i class="bi bi-cpu me-1"></i><?= (int)$c['total_machines'] ?>
-                                        </span>
-                                    </td>
-                                    <td class="small text-secondary">
-                                        <?= date('M d, Y', strtotime($c['created_at'])) ?>
-                                    </td>
-                                    <td>
-                                        <div class="d-flex align-items-center gap-2">
-                                            <!-- Edit Button -->
-                                            <button type="button" class="btn btn-sm btn-outline-primary rounded-2 px-2.5 py-1" data-bs-toggle="modal" data-bs-target="#editOwnerModal<?= (int)$c['id'] ?>" title="Edit Customer">
-                                                <i class="bi bi-pencil-square me-1"></i><?= term('btn_edit') ?>
-                                            </button>
-
-                                            <!-- Toggle Status Form with Confirmation -->
-                                            <form method="POST" class="d-inline" onsubmit="return confirm('<?= $c['status'] === 'active' ? 'Are you sure you want to disable this customer account?' : 'Are you sure you want to enable this customer account?' ?>');">
-                                                <?= csrf_field() ?>
-                                                <input type="hidden" name="action" value="toggle_status">
-                                                <input type="hidden" name="user_id" value="<?= (int)$c['id'] ?>">
-                                                <input type="hidden" name="status" value="<?= $c['status'] === 'active' ? 'inactive' : 'active' ?>">
-                                                <?php if ($c['status'] === 'active'): ?>
-                                                    <button type="submit" class="btn btn-sm btn-outline-warning rounded-2 px-2.5 py-1" title="Disable Customer Account">
-                                                        <i class="bi bi-slash-circle me-1"></i>Disable
-                                                    </button>
-                                                <?php else: ?>
-                                                    <button type="submit" class="btn btn-sm btn-outline-success rounded-2 px-2.5 py-1" title="Enable Customer Account">
-                                                        <i class="bi bi-check-circle me-1"></i>Enable
-                                                    </button>
-                                                <?php endif; ?>
-                                            </form>
-
-                                            <!-- Verify Email Form if pending with Confirmation -->
-                                            <?php if (empty($c['email_verified'])): ?>
-                                                <form method="POST" class="d-inline" onsubmit="return confirm('Manually verify OTP for <?= e($c['full_name']) ?>?');">
-                                                    <?= csrf_field() ?>
-                                                    <input type="hidden" name="action" value="verify_email">
-                                                    <input type="hidden" name="user_id" value="<?= (int)$c['id'] ?>">
-                                                    <button type="submit" class="btn btn-sm btn-outline-info rounded-2 px-2.5 py-1" title="Manually verify OTP">
-                                                        <i class="bi bi-shield-check me-1"></i>Verify OTP
-                                                    </button>
-                                                </form>
-                                            <?php endif; ?>
+                                    <td class="text-end pe-3">
+                                        <div class="d-inline-flex align-items-center gap-2">
+                                            <span class="badge <?= !empty($c['machines']) ? 'bg-primary bg-opacity-15 text-primary border border-primary border-opacity-25' : 'bg-dark text-secondary border border-secondary border-opacity-25' ?> rounded-pill px-2.5 py-1 font-monospace">
+                                                <i class="bi bi-cpu me-1"></i><?= (int)$c['total_machines'] ?> <?= (int)$c['total_machines'] === 1 ? 'Machine' : 'Machines' ?>
+                                            </span>
+                                            <span class="btn btn-sm btn-outline-secondary p-0 rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 26px; height: 26px;">
+                                                <i class="bi bi-chevron-down chevron-icon small"></i>
+                                            </span>
                                         </div>
+                                    </td>
+                                </tr>
 
-                                        <!-- EDIT CUSTOMER ACCOUNT MODAL -->
-                                        <div class="modal fade" id="editOwnerModal<?= (int)$c['id'] ?>" tabindex="-1" aria-hidden="true">
-                                            <div class="modal-dialog modal-dialog-centered">
-                                                <div class="modal-content bg-dark text-light border-secondary border-opacity-25" style="background:#0f172a; border-color:#1e293b;">
-                                                    <div class="modal-header border-secondary border-opacity-25">
-                                                        <h5 class="modal-title fw-bold">
-                                                            <i class="bi bi-pencil-square me-2 text-primary"></i><?= term('btn_edit_customer') ?>
-                                                        </h5>
-                                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                                                    </div>
-                                                    <form method="POST">
-                                                        <?= csrf_field() ?>
-                                                        <div class="modal-body p-4">
-                                                            <input type="hidden" name="action" value="edit_customer">
-                                                            <input type="hidden" name="user_id" value="<?= (int)$c['id'] ?>">
+                                <!-- Collapsible Accordion Drawer Row -->
+                                <tr class="customer-drawer-row">
+                                    <td colspan="4">
+                                        <div class="collapse" id="customerDrawer<?= (int)$c['id'] ?>">
+                                            <div class="customer-drawer-content p-3 p-md-4">
+                                                <div class="row g-4">
+                                                    <!-- Left: Customer Profile & Quick Actions -->
+                                                    <div class="col-12 col-lg-4 col-xl-3 border-end border-secondary border-opacity-10">
+                                                        <div class="d-flex align-items-center gap-2 mb-3">
+                                                            <i class="bi bi-person-lines-fill text-primary"></i>
+                                                            <span class="fw-bold text-light text-uppercase small tracking-wide">Owner Profile</span>
+                                                        </div>
 
-                                                            <div class="mb-3">
-                                                                <label class="form-label text-secondary small fw-bold">FULL NAME</label>
-                                                                <input type="text" name="full_name" class="form-control bg-dark text-light border-secondary border-opacity-25" value="<?= e($c['full_name']) ?>" required>
+                                                        <div class="mb-3 p-3 rounded-3" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.1);">
+                                                            <div class="mb-2">
+                                                                <span class="text-secondary small d-block mb-1">Email Verification</span>
+                                                                <?php if (!empty($c['email_verified'])): ?>
+                                                                    <span class="badge bg-success bg-opacity-15 text-success border border-success border-opacity-25 rounded-pill px-2.5 py-1 small">
+                                                                        <i class="bi bi-patch-check-fill me-1"></i>Verified
+                                                                    </span>
+                                                                <?php else: ?>
+                                                                    <span class="badge bg-warning bg-opacity-15 text-warning border border-warning border-opacity-25 rounded-pill px-2.5 py-1 small">
+                                                                        <i class="bi bi-clock-history me-1"></i>Pending OTP
+                                                                    </span>
+                                                                <?php endif; ?>
                                                             </div>
-
-                                                            <div class="mb-3">
-                                                                <label class="form-label text-secondary small fw-bold">EMAIL ADDRESS</label>
-                                                                <input type="email" name="email" class="form-control bg-dark text-light border-secondary border-opacity-25" value="<?= e($c['email']) ?>" required>
+                                                            <div class="mb-2">
+                                                                <span class="text-secondary small d-block">Registered On</span>
+                                                                <span class="text-light small fw-medium"><?= date('M d, Y h:i A', strtotime($c['created_at'])) ?></span>
                                                             </div>
-
-                                                            <div class="mb-3">
-                                                                <label class="form-label text-secondary small fw-bold">USERNAME</label>
-                                                                <input type="text" name="username" class="form-control bg-dark text-light border-secondary border-opacity-25" value="<?= e($c['username']) ?>" required>
-                                                            </div>
-
-                                                            <div class="mb-3">
-                                                                <label class="form-label text-secondary small fw-bold">NEW PASSWORD (OPTIONAL)</label>
-                                                                <input type="password" name="password" class="form-control bg-dark text-light border-secondary border-opacity-25" placeholder="Leave blank to keep current password">
+                                                            <div>
+                                                                <span class="text-secondary small d-block">Account Role</span>
+                                                                <span class="badge bg-dark border border-secondary border-opacity-25 text-light small">Owner</span>
                                                             </div>
                                                         </div>
-                                                        <div class="modal-footer border-secondary border-opacity-25">
-                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                                            <button type="submit" class="btn btn-primary fw-bold">
-                                                                <i class="bi bi-check-lg me-1"></i>Save Changes
+
+                                                        <!-- Quick Management Actions -->
+                                                        <div class="d-flex flex-column gap-2" onclick="event.stopPropagation();">
+                                                            <button type="button" class="btn btn-sm btn-outline-primary d-flex align-items-center justify-content-center gap-2 py-1.5" data-bs-toggle="modal" data-bs-target="#editOwnerModal<?= (int)$c['id'] ?>">
+                                                                <i class="bi bi-pencil-square"></i><?= term('btn_edit_customer') ?>
                                                             </button>
+
+                                                            <form method="POST" class="d-inline" onsubmit="return confirm('<?= $c['status'] === 'active' ? 'Are you sure you want to disable this customer account?' : 'Are you sure you want to enable this customer account?' ?>');">
+                                                                <?= csrf_field() ?>
+                                                                <input type="hidden" name="action" value="toggle_status">
+                                                                <input type="hidden" name="user_id" value="<?= (int)$c['id'] ?>">
+                                                                <input type="hidden" name="status" value="<?= $c['status'] === 'active' ? 'inactive' : 'active' ?>">
+                                                                <?php if ($c['status'] === 'active'): ?>
+                                                                    <button type="submit" class="btn btn-sm btn-outline-warning w-100 d-flex align-items-center justify-content-center gap-2 py-1.5">
+                                                                        <i class="bi bi-slash-circle"></i>Disable Account
+                                                                    </button>
+                                                                <?php else: ?>
+                                                                    <button type="submit" class="btn btn-sm btn-outline-success w-100 d-flex align-items-center justify-content-center gap-2 py-1.5">
+                                                                        <i class="bi bi-check-circle"></i>Enable Account
+                                                                    </button>
+                                                                <?php endif; ?>
+                                                            </form>
+
+                                                            <?php if (empty($c['email_verified'])): ?>
+                                                                <form method="POST" class="d-inline" onsubmit="return confirm('Manually verify OTP for <?= e($c['full_name']) ?>?');">
+                                                                    <?= csrf_field() ?>
+                                                                    <input type="hidden" name="action" value="verify_email">
+                                                                    <input type="hidden" name="user_id" value="<?= (int)$c['id'] ?>">
+                                                                    <button type="submit" class="btn btn-sm btn-outline-info w-100 d-flex align-items-center justify-content-center gap-2 py-1.5">
+                                                                        <i class="bi bi-shield-check"></i>Verify OTP Manually
+                                                                    </button>
+                                                                </form>
+                                                            <?php endif; ?>
                                                         </div>
-                                                    </form>
+                                                    </div>
+
+                                                    <!-- Right: Connected Machines Fleet -->
+                                                    <div class="col-12 col-lg-8 col-xl-9">
+                                                        <div class="d-flex align-items-center justify-content-between mb-3">
+                                                            <div class="d-flex align-items-center gap-2">
+                                                                <i class="bi bi-cpu-fill text-info"></i>
+                                                                <span class="fw-bold text-light text-uppercase small tracking-wide">Connected Machines</span>
+                                                                <span class="badge bg-secondary bg-opacity-25 text-info rounded-pill font-monospace"><?= count($c['machines']) ?></span>
+                                                            </div>
+                                                        </div>
+
+                                                        <?php if (empty($c['machines'])): ?>
+                                                            <div class="text-center py-4 px-3 rounded-3" style="background: rgba(15, 23, 42, 0.4); border: 1px dashed rgba(148, 163, 184, 0.2);">
+                                                                <i class="bi bi-hdd-network text-secondary fs-3 d-block mb-2"></i>
+                                                                <div class="text-secondary small fw-medium">No vending machines connected to this owner yet.</div>
+                                                                <div class="text-muted extra-small mt-1">When machines activate with product keys linked to this account, they will automatically appear here.</div>
+                                                            </div>
+                                                        <?php else: ?>
+                                                            <div class="row g-2">
+                                                                <?php foreach ($c['machines'] as $m): ?>
+                                                                    <?php
+                                                                        $mStatus = $m['calculated_status'] ?? 'offline';
+                                                                        $statusClass = 'bg-secondary text-secondary';
+                                                                        $statusIcon = 'bi-circle-fill';
+                                                                        $statusText = 'Offline';
+
+                                                                        if ($mStatus === 'online') {
+                                                                            $statusClass = 'bg-success bg-opacity-15 text-success border border-success border-opacity-25';
+                                                                            $statusIcon = 'bi-broadcast';
+                                                                            $statusText = 'Online';
+                                                                        } elseif ($mStatus === 'stale') {
+                                                                            $statusClass = 'bg-warning bg-opacity-15 text-warning border border-warning border-opacity-25';
+                                                                            $statusIcon = 'bi-clock-history';
+                                                                            $statusText = 'Stale';
+                                                                        } else {
+                                                                            $statusClass = 'bg-danger bg-opacity-15 text-danger border border-danger border-opacity-25';
+                                                                            $statusIcon = 'bi-slash-circle';
+                                                                            $statusText = 'Offline';
+                                                                        }
+
+                                                                        $displaySerial = !empty($m['hardware_serial']) ? $m['hardware_serial'] : (!empty($m['product_key']) ? $m['product_key'] : ($m['machine_key'] ?? 'N/A'));
+                                                                    ?>
+                                                                    <div class="col-12 col-md-6">
+                                                                        <div class="machine-mini-card h-100">
+                                                                            <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                                                                                <div class="text-truncate">
+                                                                                    <span class="fw-semibold text-light fs-6 d-block text-truncate" title="<?= e($m['name'] ?: 'Machine #' . $m['id']) ?>">
+                                                                                        <i class="bi bi-hdd-rack text-primary me-1.5"></i><?= e($m['name'] ?: 'Machine #' . $m['id']) ?>
+                                                                                    </span>
+                                                                                    <span class="text-muted extra-small">ID #<?= (int)$m['id'] ?> &bull; <?= e($m['location'] ? ucfirst($m['location']) : 'Standard') ?></span>
+                                                                                </div>
+                                                                                <span class="badge <?= $statusClass ?> rounded-pill px-2.5 py-1 small flex-shrink-0">
+                                                                                    <i class="bi <?= $statusIcon ?> me-1"></i><?= $statusText ?>
+                                                                                </span>
+                                                                            </div>
+
+                                                                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                                                                <!-- Machine Code (e.g. MCH-3D60) -->
+                                                                                <div class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-20 font-monospace py-1 px-2 text-truncate" title="Machine Code">
+                                                                                    <i class="bi bi-tag-fill me-1 text-primary"></i><?= e($m['machine_code'] ?: 'No Code') ?>
+                                                                                </div>
+
+                                                                                <!-- Hardware Serial (e.g. has-9192) -->
+                                                                                <?php if (!empty($m['hardware_serial']) && $m['hardware_serial'] !== $m['machine_code']): ?>
+                                                                                    <div class="badge bg-dark text-info border border-info border-opacity-25 font-monospace py-1 px-2 text-truncate" title="Hardware Serial">
+                                                                                        <i class="bi bi-cpu me-1"></i><?= e($m['hardware_serial']) ?>
+                                                                                    </div>
+                                                                                <?php endif; ?>
+
+                                                                                <!-- Activation Key / Product Key -->
+                                                                                <?php 
+                                                                                    $keyVal = !empty($m['product_key']) ? $m['product_key'] : (!empty($m['machine_key']) ? $m['machine_key'] : '');
+                                                                                ?>
+                                                                                <?php if (!empty($keyVal)): ?>
+                                                                                    <div class="badge bg-dark text-warning border border-warning border-opacity-25 font-monospace py-1 px-2 text-truncate" title="Activation / Product Key">
+                                                                                        <i class="bi bi-key-fill me-1"></i><?= e($keyVal) ?>
+                                                                                    </div>
+                                                                                <?php endif; ?>
+                                                                            </div>
+
+                                                                            <div class="d-flex align-items-center justify-content-between text-secondary extra-small border-top border-secondary border-opacity-10 pt-2 mt-1">
+                                                                                <span><i class="bi bi-globe me-1"></i><?= e($m['ip_address'] ?? '—') ?></span>
+                                                                                <span><i class="bi bi-activity me-1"></i><?= !empty($m['last_seen']) ? date('M d, H:i', strtotime($m['last_seen'])) : 'No Heartbeat' ?></span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                <?php endforeach; ?>
+                                                            </div>
+                                                        <?php endif; ?>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -434,6 +584,57 @@ $currentDir  = 'customers';
                     </table>
                 </div>
             </div>
+
+            <!-- Edit Customer Modals placed cleanly outside the table -->
+            <?php if (!empty($customers)): ?>
+                <?php foreach ($customers as $c): ?>
+                    <div class="modal fade" id="editOwnerModal<?= (int)$c['id'] ?>" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content bg-dark text-light border-secondary border-opacity-25" style="background:#0f172a; border-color:#1e293b;">
+                                <div class="modal-header border-secondary border-opacity-25">
+                                    <h5 class="modal-title fw-bold">
+                                        <i class="bi bi-pencil-square me-2 text-primary"></i><?= term('btn_edit_customer') ?>
+                                    </h5>
+                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                </div>
+                                <form method="POST">
+                                    <?= csrf_field() ?>
+                                    <div class="modal-body p-4">
+                                        <input type="hidden" name="action" value="edit_customer">
+                                        <input type="hidden" name="user_id" value="<?= (int)$c['id'] ?>">
+
+                                        <div class="mb-3">
+                                            <label class="form-label text-secondary small fw-bold">FULL NAME</label>
+                                            <input type="text" name="full_name" class="form-control bg-dark text-light border-secondary border-opacity-25" value="<?= e($c['full_name']) ?>" required>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label text-secondary small fw-bold">EMAIL ADDRESS</label>
+                                            <input type="email" name="email" class="form-control bg-dark text-light border-secondary border-opacity-25" value="<?= e($c['email']) ?>" required>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label text-secondary small fw-bold">USERNAME</label>
+                                            <input type="text" name="username" class="form-control bg-dark text-light border-secondary border-opacity-25" value="<?= e($c['username']) ?>" required>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label text-secondary small fw-bold">NEW PASSWORD (OPTIONAL)</label>
+                                            <input type="password" name="password" class="form-control bg-dark text-light border-secondary border-opacity-25" placeholder="Leave blank to keep current password">
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer border-secondary border-opacity-25">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                        <button type="submit" class="btn btn-primary fw-bold">
+                                            <i class="bi bi-check-lg me-1"></i>Save Changes
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </main>
         
         <!-- App Footer -->

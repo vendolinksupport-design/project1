@@ -23,12 +23,14 @@ require_once __DIR__ . '/../models/Report.php';
 // Auth Guard
 require_auth();
 
-$period  = trim($_GET['period'] ?? 'today');
-$ownerId = current_owner_id();
+$period    = trim($_GET['period'] ?? 'today');
+$machineId = isset($_GET['machine']) && $_GET['machine'] !== 'all' && $_GET['machine'] !== '' ? (int)$_GET['machine'] : (isset($_GET['machine_id']) && $_GET['machine_id'] !== 'all' && $_GET['machine_id'] !== '' ? (int)$_GET['machine_id'] : null);
+$service   = trim($_GET['service'] ?? 'all');
+$ownerId   = current_owner_id();
 
 try {
     $reportModel = new Report();
-    $analytics   = $reportModel->getSalesAnalytics($period, $ownerId);
+    $analytics   = $reportModel->getSalesAnalytics($period, $ownerId, $machineId, $service);
 
     echo json_encode([
         'success' => true,

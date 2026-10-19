@@ -12,7 +12,7 @@ Options -MultiViews
 # ============================================================
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteBase /vendolink_claude_v1/
+    # RewriteBase /vendolink_claude_v1/
 
     # Redirect HTTP to HTTPS in production (uncomment when SSL is configured)
     # RewriteCond %{HTTPS} off

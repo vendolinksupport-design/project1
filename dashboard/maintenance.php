@@ -24,24 +24,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     (new MaintenanceController())->handle();
 }
 
-$pageTitle   = 'Maintenance';
+$pageTitle   = 'Service Reminders';
 $currentPage = 'maintenance';
 $user        = current_user();
 $ownerId     = current_owner_id();
 
 $maintenance = new Maintenance();
-$items       = $maintenance->items($ownerId);
+$page        = max(1, (int) ($_GET['page'] ?? 1));
+$perPage     = 5;
+$paginationData = $maintenance->itemsPaginated($ownerId, $page, $perPage);
+$items       = $paginationData['items'];
+$totalItems  = $paginationData['total_items'];
+$totalPages  = $paginationData['total_pages'];
+$page        = $paginationData['page'];
+$countText   = $paginationData['count_text'];
+$activeCount = $maintenance->countActive($ownerId);
+$isLimitReached = ($activeCount >= Maintenance::MAX_ACTIVE_REMINDERS);
+
 $services    = $maintenance->services($ownerId);
 $machineRuntimeSeconds = $maintenance->getMachineRuntime($ownerId);
 $machineRuntimeMinutes = (int) floor($machineRuntimeSeconds / 60);
-
-$page        = max(1, (int) ($_GET['page'] ?? 1));
-$perPage     = 15;
-$historyData = $maintenance->historyPaginated($ownerId, $page, $perPage);
-$history     = $historyData['items'];
-$totalHistoryItems = $historyData['total_items'];
-$totalPages  = $historyData['total_pages'];
-$page        = $historyData['page'];
 
 if (!function_exists('build_maintenance_url')) {
     function build_maintenance_url(array $overrides = []): string
@@ -51,10 +53,12 @@ if (!function_exists('build_maintenance_url')) {
     }
 }
 
-function runtime_label(int $seconds): string
-{
-    $hours = intdiv($seconds, 3600);
-    return $hours . 'h ' . intdiv($seconds % 3600, 60) . 'm';
+if (!function_exists('runtime_label')) {
+    function runtime_label(int $seconds): string
+    {
+        $hours = intdiv($seconds, 3600);
+        return $hours . 'h ' . intdiv($seconds % 3600, 60) . 'm';
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -103,207 +107,132 @@ function runtime_label(int $seconds): string
             <div class="page-header mb-4">
                 <div>
                     <h1 class="page-title text-white">
-                        <i class="bi bi-wrench-adjustable-circle me-2 text-primary-vl"></i>Maintenance
+                        <i class="bi bi-wrench-adjustable-circle me-2 text-primary-vl"></i>Service Reminders
                     </h1>
                     <p class="page-subtitle text-light">
-                        Calendar and runtime reminders for VendoLink Machine 01.
+                        Manage service schedules and keep your machine running smoothly.
                     </p>
                 </div>
             </div>
 
+            <!-- Active Reminders Section (Full Width) -->
             <div class="row g-4 mb-4">
-                <!-- Add Reminder Form Column -->
-                <div class="col-12 col-xl-4">
-                    <section class="maintenance-form-card">
-                        <h2>Add Maintenance Reminder</h2>
-                        <p>Create a maintenance reminder based on calendar time, machine runtime, or both.</p>
-                        <form method="post" id="addReminderForm">
-                            <input type="hidden" name="action" value="add">
-                            <?= csrf_field() ?>
-
-                            <label for="new_rem_name">Maintenance Name
-                                <input class="form-control dark-input" id="new_rem_name" name="name" required maxlength="120" placeholder="e.g. Water Pump">
-                            </label>
-
-                            <label for="new_rem_service">Applies To
-                                <select class="form-select dark-input" id="new_rem_service" name="service_id">
-                                    <option value="" data-runtime-minutes="<?= $machineRuntimeMinutes ?>">Entire Machine</option>
-                                    <?php foreach ($services as $service): ?>
-                                        <option value="<?= (int) $service['id'] ?>" data-runtime-minutes="<?= (int) floor(((int)($service['runtime_seconds'] ?? 0)) / 60) ?>">
-                                            <?= e($service['name']) ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </label>
-
-                            <label for="new_rem_type">Reminder Type
-                                <select class="form-select dark-input" id="new_rem_type" name="reminder_type">
-                                    <option value="both" selected>Both</option>
-                                    <option value="calendar">Calendar</option>
-                                    <option value="runtime">Runtime</option>
-                                </select>
-                            </label>
-
-                            <label for="new_rem_date">Last Maintenance
-                                <input class="form-control dark-input" id="new_rem_date" type="date" name="last_completed_date" value="<?= date('Y-m-d') ?>" required>
-                            </label>
-
-                            <div class="row g-2" id="calendarIntervalGroup">
-                                <div class="col-6">
-                                    <label for="new_rem_cal_val">Calendar Interval
-                                        <input class="form-control dark-input" id="new_rem_cal_val" type="number" min="1" name="calendar_interval_value" value="5">
-                                    </label>
-                                </div>
-                                <div class="col-6">
-                                    <label for="new_rem_cal_unit">&nbsp;
-                                        <select class="form-select dark-input" id="new_rem_cal_unit" name="calendar_interval_unit">
-                                            <option value="days">Days</option>
-                                            <option value="weeks">Weeks</option>
-                                            <option value="months" selected>Months</option>
-                                            <option value="years">Years</option>
-                                        </select>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <div id="runtimeIntervalGroup" class="mt-2">
-                                <label for="new_rem_run_val">Runtime Interval (minutes)
-                                    <input class="form-control dark-input" id="new_rem_run_val" type="number" min="1" name="runtime_interval_minutes" placeholder="e.g. 500">
-                                </label>
-                                <small class="text-muted d-block mt-1" style="font-size: 0.78rem;">Based on accumulated service runtime.</small>
-                            </div>
-
-                            <!-- Next-Due Preview Box -->
-                            <div class="maintenance-preview-box my-3 p-3 rounded" id="maintenancePreviewBox" style="background: var(--vl-surface-2); border: 1px solid var(--vl-border);">
-                                <div class="d-flex align-items-center justify-content-between mb-2">
-                                    <span class="text-uppercase fw-bold" style="font-size: 0.72rem; letter-spacing: 0.05em; color: var(--vl-primary);">
-                                        <i class="bi bi-clock-history me-1"></i>Next-Due Preview
-                                    </span>
-                                    <span class="badge" id="previewBadge" style="font-size: 0.68rem; background: rgba(56, 189, 248, 0.15); color: var(--vl-primary); border: 1px solid rgba(56, 189, 248, 0.25);">Both</span>
-                                </div>
-
-                                <!-- CALENDAR ONLY PREVIEW -->
-                                <div id="previewCalendarMode" class="d-none">
-                                    <div class="d-flex justify-content-between align-items-center py-1 border-bottom" style="border-color: rgba(255,255,255,0.06) !important;">
-                                        <span class="text-muted small">Last Maintenance</span>
-                                        <span class="fw-semibold text-white small" id="prevCalLast">—</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center py-1 border-bottom" style="border-color: rgba(255,255,255,0.06) !important;">
-                                        <span class="text-muted small">Calendar Interval</span>
-                                        <span class="fw-semibold text-white small" id="prevCalInterval">—</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center pt-1">
-                                        <span class="text-muted small">Next Due</span>
-                                        <span class="fw-bold text-info small" id="prevCalNext">—</span>
-                                    </div>
-                                </div>
-
-                                <!-- RUNTIME ONLY PREVIEW -->
-                                <div id="previewRuntimeMode" class="d-none">
-                                    <div class="d-flex justify-content-between align-items-center py-1 border-bottom" style="border-color: rgba(255,255,255,0.06) !important;">
-                                        <span class="text-muted small">Runtime Interval</span>
-                                        <span class="fw-semibold text-white small" id="prevRunInterval">—</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center py-1 border-bottom" style="border-color: rgba(255,255,255,0.06) !important;">
-                                        <span class="text-muted small">Current Runtime</span>
-                                        <span class="fw-semibold text-white small" id="prevRunCurrent">0 minutes</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center pt-1">
-                                        <span class="text-muted small">Remaining</span>
-                                        <span class="fw-bold text-info small" id="prevRunRemaining">—</span>
-                                    </div>
-                                </div>
-
-                                <!-- BOTH MODE PREVIEW -->
-                                <div id="previewBothMode">
-                                    <div class="d-flex justify-content-between align-items-center py-1 border-bottom" style="border-color: rgba(255,255,255,0.06) !important;">
-                                        <span class="text-muted small">Next Calendar Due</span>
-                                        <span class="fw-bold text-info small" id="prevBothCalDue">—</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center pt-1">
-                                        <span class="text-muted small">Runtime Remaining</span>
-                                        <span class="fw-bold text-info small" id="prevBothRunRemaining">—</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="form-check form-switch mt-3">
-                                <input class="form-check-input" type="checkbox" role="switch" name="is_enabled" id="new-enabled" checked>
-                                <label class="form-check-label" for="new-enabled">Reminder enabled</label>
-                            </div>
-
-                            <button class="btn-save-config mt-3" type="submit">
-                                <i class="bi bi-plus-circle me-2"></i>Add Reminder
-                            </button>
-                        </form>
-                    </section>
-                </div>
-
-                <!-- Current Reminders Column -->
-                <div class="col-12 col-xl-8">
+                <div class="col-12">
                     <section class="maintenance-list-card">
-                        <div class="section-heading">
-                            <h2>Current Reminders</h2>
-                            <span><?= count($items) ?> item<?= count($items) === 1 ? '' : 's' ?></span>
+                        <div class="section-heading d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
+                            <div>
+                                <h2 class="mb-1 text-white">Active Reminders</h2>
+                                <p class="text-muted small mb-0">Manage your scheduled maintenance tasks.</p>
+                            </div>
+                            <div>
+                                <button type="button" class="btn-maintenance-primary d-inline-flex align-items-center" data-bs-toggle="modal" data-bs-target="#addReminderModal"<?= $isLimitReached ? ' title="Maximum 50 active reminders reached"' : '' ?>>
+                                    <i class="bi bi-plus-circle me-1.5"></i>Add Reminder
+                                </button>
+                            </div>
                         </div>
 
-                        <?php if (!$items): ?>
-                        <div class="maintenance-empty py-5">
-                            <i class="bi bi-calendar-check" style="font-size: 3rem; color: var(--vl-text-muted);"></i>
-                            <p class="text-light mt-2">No maintenance reminders yet.</p>
+                        <?php if ($isLimitReached): ?>
+                        <div class="alert alert-warning py-2 px-3 small my-3 d-flex align-items-center gap-2">
+                            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                            <span>Maximum active reminder limit reached (50 of 50 reminders). Delete or turn off an existing reminder to add a new one.</span>
                         </div>
                         <?php endif; ?>
 
-                        <?php foreach ($items as $item): ?>
+                        <?php if ($totalItems > 0 && $activeCount === 0): ?>
+                        <div class="alert alert-info py-2 px-3 small my-3 d-flex align-items-center gap-2" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.25); color: #cbd5e1;">
+                            <i class="bi bi-info-circle text-primary-vl flex-shrink-0"></i>
+                            <span><strong>No active reminders:</strong> All scheduled reminders are currently turned off. Turn on a reminder below or create a new one to resume service schedule tracking.</span>
+                        </div>
+                        <?php endif; ?>
+
+                        <div class="maintenance-items-container" id="maintenanceItemsContainer">
+                            <?php if ($totalItems === 0): ?>
+                            <div class="maintenance-empty-state">
+                                <div class="maintenance-empty-icon-circle">
+                                    <i class="bi bi-calendar-check"></i>
+                                </div>
+                                <h3 class="maintenance-empty-heading">No active reminders</h3>
+                                <p class="maintenance-empty-desc">You haven't scheduled any service reminders yet.</p>
+                                <p class="maintenance-empty-subtext">Create one to keep your machine in good condition.</p>
+                                <div class="mt-3">
+                                    <button type="button" class="btn-maintenance-primary d-inline-flex align-items-center" data-bs-toggle="modal" data-bs-target="#addReminderModal" id="btnCreateFirstReminder">
+                                        <i class="bi bi-plus-circle me-1.5"></i>Create First Reminder
+                                    </button>
+                                </div>
+                            </div>
+                            <?php else: ?>
+                            <div class="maintenance-items-list">
+
+                        <?php foreach ($items as $item): 
+                            $serviceKey = strtolower($item['service_name'] ?? '');
+                            $serviceIcon = 'bi-cpu';
+                            $serviceIconColor = 'var(--vl-primary)';
+                            if (str_contains($serviceKey, 'water')) {
+                                $serviceIcon = 'bi-droplet-fill';
+                                $serviceIconColor = '#38bdf8';
+                            } elseif (str_contains($serviceKey, 'soap')) {
+                                $serviceIcon = 'bi-sparkles';
+                                $serviceIconColor = '#f59e0b';
+                            }
+                        ?>
                         <article class="maintenance-item">
                             <div class="maintenance-item-main">
                                 <div>
-                                    <h3><?= e($item['name']) ?></h3>
-                                    <p><?= e($item['service_name'] ?: 'Entire Machine') ?> &middot; <?= e(ucfirst($item['reminder_type'])) ?> reminder</p>
+                                    <h3 class="d-flex align-items-center gap-2 mb-1">
+                                        <i class="bi <?= $serviceIcon ?>" style="color: <?= $serviceIconColor ?>; font-size: 0.95em;"></i>
+                                        <span><?= e($item['name']) ?></span>
+                                    </h3>
+                                    <p class="text-muted small mb-0">
+                                        <?= e($item['service_name'] ?: 'Entire Machine') ?> &bull; <?= e(ucfirst($item['reminder_type'])) ?> reminder
+                                    </p>
                                 </div>
                                 <span class="maintenance-status status-<?= e($item['status']) ?>">
                                     <?= match($item['status']) {
-                                        'soon' => 'Upcoming',
-                                        'due', 'overdue' => 'Due',
+                                        'soon', 'due' => 'Due Soon',
+                                        'overdue' => 'Overdue',
                                         'ok' => 'Normal',
+                                        'off' => 'Turned Off',
                                         default => ucfirst(e($item['status']))
                                     } ?>
                                 </span>
                             </div>
 
-                            <div class="maintenance-details">
-                                <?php if ($item['next_due_date']): ?>
-                                <span><i class="bi bi-calendar3"></i>Next date: <?= e($item['next_due_date']->format('M j, Y')) ?></span>
-                                <?php endif; ?>
+                            <div class="maintenance-details d-flex flex-wrap align-items-center gap-2 mt-3">
+                                <div class="d-flex align-items-center gap-1.5">
+                                    <i class="bi bi-calendar3 text-primary-vl"></i>
+                                    <span class="text-secondary small fw-semibold text-uppercase" style="letter-spacing: 0.04em;">NEXT DUE:</span>
+                                    <span class="text-light fw-medium">
+                                        <?= $item['next_due_date'] ? e($item['next_due_date']->format('M j, Y')) : 'Runtime only' ?>
+                                    </span>
+                                    <?php if ($item['runtime_interval_seconds']): ?>
+                                    <span class="text-muted small ms-1">(<i class="bi bi-stopwatch text-primary-vl"></i><?= runtime_label((int) $item['current_runtime_seconds'] - (int) $item['runtime_baseline_seconds']) ?> / <?= runtime_label((int) $item['runtime_interval_seconds']) ?>)</span>
+                                    <?php endif; ?>
+                                </div>
 
-                                <?php if ($item['runtime_interval_seconds']): ?>
-                                <span><i class="bi bi-stopwatch"></i><?= runtime_label((int) $item['current_runtime_seconds'] - (int) $item['runtime_baseline_seconds']) ?> / <?= runtime_label((int) $item['runtime_interval_seconds']) ?></span>
-                                <?php endif; ?>
+                                <span class="text-secondary opacity-50 d-none d-sm-inline mx-2">|</span>
 
-                                <span><i class="bi bi-clock-history"></i>Last: <?= format_date($item['last_completed_at'], 'M j, Y') ?></span>
+                                <div class="d-flex align-items-center gap-1.5">
+                                    <i class="bi bi-check-circle-fill text-success"></i>
+                                    <span class="text-secondary small fw-semibold text-uppercase" style="letter-spacing: 0.04em;">LAST COMPLETED:</span>
+                                    <span class="text-light fw-medium">
+                                        <?= $item['last_completed_at'] ? format_date($item['last_completed_at'], 'M j, Y') : 'Never' ?>
+                                    </span>
+                                </div>
                             </div>
 
-                            <div class="maintenance-actions">
+                            <div class="maintenance-actions mt-3">
+                                <button class="btn-maintenance-secondary" type="button" data-bs-toggle="modal" data-bs-target="#editModal-<?= (int) $item['id'] ?>">
+                                    Edit
+                                </button>
+
                                 <form method="post" class="d-inline">
                                     <input type="hidden" name="action" value="toggle">
                                     <?= csrf_field() ?>
                                     <input type="hidden" name="item_id" value="<?= (int) $item['id'] ?>">
                                     <input type="hidden" name="enabled" value="<?= $item['is_enabled'] ? '0' : '1' ?>">
+                                    <input type="hidden" name="page" value="<?= (int) $page ?>">
                                     <button class="btn-maintenance-secondary" type="submit">
                                         <?= $item['is_enabled'] ? 'Turn Off' : 'Turn On' ?>
-                                    </button>
-                                </form>
-
-                                <button class="btn-maintenance-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-<?= (int) $item['id'] ?>">
-                                    Edit
-                                </button>
-
-                                <form method="post" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this reminder?');">
-                                    <input type="hidden" name="action" value="delete">
-                                    <?= csrf_field() ?>
-                                    <input type="hidden" name="item_id" value="<?= (int) $item['id'] ?>">
-                                    <button class="btn-maintenance-secondary text-danger" type="submit" style="border-color: #ef4444;">
-                                        Delete
                                     </button>
                                 </form>
 
@@ -313,204 +242,320 @@ function runtime_label(int $seconds): string
                             </div>
 
                             <div class="collapse mt-3" id="complete-<?= (int) $item['id'] ?>">
-                                <form method="post" class="complete-form">
+                                <form method="post" class="complete-form" onsubmit="var btn=this.querySelector('button[type=submit]'); if(btn){btn.disabled=true; btn.innerHTML='<span class=\'spinner-border spinner-border-sm me-1\'></span>Saving...';}">
                                     <input type="hidden" name="action" value="complete">
                                     <?= csrf_field() ?>
                                     <input type="hidden" name="item_id" value="<?= (int) $item['id'] ?>">
+                                    <input type="hidden" name="page" value="<?= (int) $page ?>">
                                     <input class="form-control dark-input" name="notes" maxlength="1000" placeholder="Optional completion notes">
                                     <button class="btn-maintenance-primary" type="submit">Confirm Completion</button>
                                 </form>
                             </div>
-
-                            <div class="collapse mt-3" id="edit-<?= (int) $item['id'] ?>">
-                                <form method="post" class="maintenance-form-card" style="padding: 1.25rem; border: 1px solid var(--vl-border); border-radius: var(--border-radius); background: var(--vl-surface-2);">
-                                    <input type="hidden" name="action" value="edit">
-                                    <?= csrf_field() ?>
-                                    <input type="hidden" name="item_id" value="<?= (int) $item['id'] ?>">
-
-                                    <label>Maintenance Name
-                                        <input class="form-control dark-input" name="name" required maxlength="120" value="<?= e($item['name']) ?>">
-                                    </label>
-
-                                    <label>Applies To
-                                        <select class="form-select dark-input" name="service_id">
-                                            <option value="">Entire Machine</option>
-                                            <?php foreach ($services as $service): ?>
-                                                <option value="<?= (int) $service['id'] ?>" <?= $item['service_id'] == $service['id'] ? 'selected' : '' ?>>
-                                                    <?= e($service['name']) ?>
-                                                </option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </label>
-
-                                    <label>Reminder Type
-                                        <select class="form-select dark-input" name="reminder_type">
-                                            <option value="calendar" <?= $item['reminder_type'] === 'calendar' ? 'selected' : '' ?>>Calendar</option>
-                                            <option value="runtime" <?= $item['reminder_type'] === 'runtime' ? 'selected' : '' ?>>Runtime</option>
-                                            <option value="both" <?= $item['reminder_type'] === 'both' ? 'selected' : '' ?>>Both</option>
-                                        </select>
-                                    </label>
-
-                                    <label>Last Maintenance
-                                        <input class="form-control dark-input" type="date" name="last_completed_date" value="<?= date('Y-m-d', strtotime($item['last_completed_at'])) ?>" required>
-                                    </label>
-
-                                    <div class="row g-2">
-                                        <div class="col-6">
-                                            <label>Calendar Interval
-                                                <input class="form-control dark-input" type="number" min="1" name="calendar_interval_value" value="<?= e((string) $item['calendar_interval_value']) ?>">
-                                            </label>
-                                        </div>
-                                        <div class="col-6">
-                                            <label>&nbsp;
-                                                <select class="form-select dark-input" name="calendar_interval_unit">
-                                                    <option value="months" <?= $item['calendar_interval_unit'] === 'months' ? 'selected' : '' ?>>Months</option>
-                                                    <option value="weeks" <?= $item['calendar_interval_unit'] === 'weeks' ? 'selected' : '' ?>>Weeks</option>
-                                                    <option value="days" <?= $item['calendar_interval_unit'] === 'days' ? 'selected' : '' ?>>Days</option>
-                                                    <option value="years" <?= $item['calendar_interval_unit'] === 'years' ? 'selected' : '' ?>>Years</option>
-                                                </select>
-                                            </label>
-                                        </div>
-                                    </div>
-
-                                    <label>Runtime Interval (minutes)
-                                        <input class="form-control dark-input" type="number" min="1" name="runtime_interval_minutes" value="<?= $item['runtime_interval_seconds'] ? (int) $item['runtime_interval_seconds'] / 60 : '' ?>">
-                                    </label>
-                                    <small class="text-muted d-block mt-1" style="font-size: 0.78rem;">Based on accumulated service runtime.</small>
-
-                                    <div class="form-check form-switch mt-3">
-                                        <input class="form-check-input" type="checkbox" role="switch" name="is_enabled" id="edit-enabled-<?= (int) $item['id'] ?>" <?= $item['is_enabled'] ? 'checked' : '' ?>>
-                                        <label class="form-check-label" for="edit-enabled-<?= (int) $item['id'] ?>">Reminder enabled</label>
-                                    </div>
-
-                                    <button class="btn-save-config mt-3" type="submit">Save Changes</button>
-                                </form>
-                            </div>
                         </article>
                         <?php endforeach; ?>
+                            </div>
+                            <?php if (count($items) > 0 && count($items) < 5): ?>
+                            <!-- Reserved Space Helper Message for Unused Rows -->
+                            <div class="maintenance-reserved-space">
+                                <div class="maintenance-reserved-content">
+                                    <svg class="maintenance-reserved-icon" width="28" height="24" viewBox="0 0 28 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                        <path d="M5 2H23L26 9H2L5 2Z" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round" fill="none" opacity="0.75"/>
+                                        <line x1="4" y1="14" x2="24" y2="14" stroke="#64748b" stroke-width="1.8" stroke-linecap="round" opacity="0.65"/>
+                                        <line x1="4" y1="19" x2="24" y2="19" stroke="#64748b" stroke-width="1.8" stroke-linecap="round" opacity="0.5"/>
+                                    </svg>
+                                    <p class="maintenance-reserved-title">Reserved space for the remaining reminder rows</p>
+                                    <p class="maintenance-reserved-sub">No placeholder cards are displayed.</p>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
+
+                        <!-- Compact Pagination Controls (Always Rendered at Bottom) -->
+                        <div class="tx-pagination maintenance-pagination d-flex flex-column flex-sm-row justify-content-between align-items-center gap-3 pt-3 mt-auto border-top border-secondary border-opacity-25" id="maintenancePagination">
+                            <div class="text-muted small" id="maintenancePaginationCount">
+                                <?= e($countText) ?>
+                            </div>
+                            <nav aria-label="Active reminders pagination">
+                                <ul class="pagination pagination-sm mb-0">
+                                    <!-- Previous -->
+                                    <li class="page-item <?= ($page <= 1 || $totalItems === 0) ? 'disabled' : '' ?>">
+                                        <?php if ($page <= 1 || $totalItems === 0): ?>
+                                            <span class="page-link" aria-disabled="true">&laquo;&nbsp;Prev</span>
+                                        <?php else: ?>
+                                            <a class="page-link" href="<?= build_maintenance_url(['page' => $page - 1]) ?>" aria-label="Previous">&laquo;&nbsp;Prev</a>
+                                        <?php endif; ?>
+                                    </li>
+
+                                    <!-- Page Numbers -->
+                                    <?php if ($totalItems === 0): ?>
+                                        <li class="page-item disabled" aria-current="page"><span class="page-link">1</span></li>
+                                    <?php else: ?>
+                                        <?php
+                                        $startPage = max(1, $page - 2);
+                                        $endPage   = min($totalPages, $page + 2);
+
+                                        if ($startPage > 1) {
+                                            echo '<li class="page-item"><a class="page-link" href="' . build_maintenance_url(['page' => 1]) . '">1</a></li>';
+                                            if ($startPage > 2) {
+                                                echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
+                                            }
+                                        }
+
+                                        for ($p = $startPage; $p <= $endPage; $p++):
+                                            if ($p === $page):
+                                                echo '<li class="page-item active" aria-current="page"><span class="page-link">' . $p . '</span></li>';
+                                            else:
+                                                echo '<li class="page-item"><a class="page-link" href="' . build_maintenance_url(['page' => $p]) . '">' . $p . '</a></li>';
+                                            endif;
+                                        endfor;
+
+                                        if ($endPage < $totalPages) {
+                                            if ($endPage < $totalPages - 1) {
+                                                echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
+                                            }
+                                            echo '<li class="page-item"><a class="page-link" href="' . build_maintenance_url(['page' => $totalPages]) . '">' . $totalPages . '</a></li>';
+                                        }
+                                        ?>
+                                    <?php endif; ?>
+
+                                    <!-- Next -->
+                                    <li class="page-item <?= ($page >= $totalPages || $totalItems === 0) ? 'disabled' : '' ?>">
+                                        <?php if ($page >= $totalPages || $totalItems === 0): ?>
+                                            <span class="page-link" aria-disabled="true">Next&nbsp;&raquo;</span>
+                                        <?php else: ?>
+                                            <a class="page-link" href="<?= build_maintenance_url(['page' => $page + 1]) ?>" aria-label="Next">Next&nbsp;&raquo;</a>
+                                        <?php endif; ?>
+                                    </li>
+                                </ul>
+                            </nav>
+                        </div>
                     </section>
                 </div>
             </div>
 
-            <!-- Maintenance History Section -->
-            <div class="tx-table-card archive-table-card maintenance-table-card mb-4">
-                <div class="panel-header">
-                    <h5 class="panel-title">
-                        <i class="bi bi-wrench-adjustable-circle me-2"></i>Maintenance History
-                    </h5>
-                    <span class="text-muted small">
-                        Showing <?= number_format(count($history)) ?> of <?= number_format($totalHistoryItems) ?> records
-                    </span>
-                </div>
-
-                <?php if (empty($history)): ?>
-                <div class="activity-empty py-5">
-                    <i class="bi bi-wrench-adjustable-circle" style="font-size: 3rem; color: var(--vl-text-muted);"></i>
-                    <p class="text-light mt-2">Completed maintenance will appear here.</p>
-                </div>
-                <?php else: ?>
-                <div class="table-responsive">
-                    <table class="table table-dark table-hover align-middle mb-0" style="--bs-table-bg: transparent;">
-                        <thead>
-                            <tr style="border-bottom: 1px solid var(--vl-border); color: var(--vl-text-muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;">
-                                <th class="ps-4">Maintenance</th>
-                                <th>Completed</th>
-                                <th>By</th>
-                                <th>Runtime</th>
-                                <th>Notes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($history as $record): ?>
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,.04); font-size: .88rem;">
-                                <td class="ps-4">
-                                    <div class="text-light fw-bold">
-                                        <i class="bi bi-wrench-adjustable-circle me-1 text-primary-vl"></i>
-                                        <?= e($record['maintenance_name']) ?>
-                                    </div>
-                                </td>
-                                <td><?= format_date($record['completed_at']) ?></td>
-                                <td>
-                                    <div class="text-light">
-                                        <i class="bi bi-person me-1 text-muted"></i>
-                                        <?= e($record['full_name'] ?: 'System') ?>
-                                    </div>
-                                </td>
-                                <td><?= runtime_label((int) $record['runtime_at_completion_seconds']) ?></td>
-                                <td><?= e($record['notes'] ?: '—') ?></td>
-                            </tr>
-                            <?php endforeach; ?>
-                            <?php
-                            $emptyRowsCount = max(0, $perPage - count($history));
-                            for ($i = 0; $i < $emptyRowsCount; $i++):
-                            ?>
-                            <tr class="tx-empty-row" aria-hidden="true">
-                                <td class="ps-4">&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                            </tr>
-                            <?php endfor; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Pagination Controls -->
-                <?php if ($totalPages > 1): ?>
-                <div class="tx-pagination">
-                    <div class="text-muted small">
-                        Page <strong><?= $page ?></strong> of <strong><?= $totalPages ?></strong> (Total <?= number_format($totalHistoryItems) ?> records)
-                    </div>
-                    <nav aria-label="Maintenance pagination">
-                        <ul class="pagination pagination-sm mb-0">
-                            <!-- Previous -->
-                            <li class="page-item <?= $page <= 1 ? 'disabled' : '' ?>">
-                                <a class="page-link" href="<?= build_maintenance_url(['page' => $page - 1]) ?>" aria-label="Previous">
-                                    <span aria-hidden="true">&laquo;&nbsp;Prev</span>
-                                </a>
-                            </li>
-
-                            <!-- Page Numbers -->
-                            <?php
-                            $startPage = max(1, $page - 2);
-                            $endPage   = min($totalPages, $page + 2);
-
-                            if ($startPage > 1) {
-                                echo '<li class="page-item"><a class="page-link" href="' . build_maintenance_url(['page' => 1]) . '">1</a></li>';
-                                if ($startPage > 2) {
-                                    echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
-                                }
-                            }
-
-                            for ($p = $startPage; $p <= $endPage; $p++): ?>
-                            <li class="page-item <?= $p === $page ? 'active' : '' ?>">
-                                <a class="page-link" href="<?= build_maintenance_url(['page' => $p]) ?>"><?= $p ?></a>
-                            </li>
-                            <?php endfor;
-
-                            if ($endPage < $totalPages) {
-                                if ($endPage < $totalPages - 1) {
-                                    echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
-                                }
-                                echo '<li class="page-item"><a class="page-link" href="' . build_maintenance_url(['page' => $totalPages]) . '">' . $totalPages . '</a></li>';
-                            }
-                            ?>
-
-                            <!-- Next -->
-                            <li class="page-item <?= $page >= $totalPages ? 'disabled' : '' ?>">
-                                <a class="page-link" href="<?= build_maintenance_url(['page' => $page + 1]) ?>" aria-label="Next">
-                                    <span aria-hidden="true">Next&nbsp;&raquo;</span>
-                                </a>
-                            </li>
-                        </ul>
-                    </nav>
-                </div>
-                <?php endif; ?>
-                <?php endif; ?>
-            </div>
-
         </main>
+
+        <!-- EDIT MAINTENANCE REMINDER MODALS -->
+        <?php foreach ($items as $item): ?>
+        <div class="modal fade" id="editModal-<?= (int) $item['id'] ?>" tabindex="-1" aria-labelledby="editModalLabel-<?= (int) $item['id'] ?>" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content text-light border-secondary border-opacity-25" style="background:#0f172a; border-color:#1e293b;">
+                    <div class="modal-header border-secondary border-opacity-25 pb-3">
+                        <h5 class="modal-title fw-bold text-white fs-6" id="editModalLabel-<?= (int) $item['id'] ?>">
+                            <i class="bi bi-wrench-adjustable-circle me-2 text-primary-vl"></i>Edit Reminder
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form method="post" id="editForm-<?= (int)$item['id'] ?>" action="<?= BASE_URL ?>/dashboard/maintenance.php">
+                        <input type="hidden" name="action" value="edit">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="item_id" value="<?= (int) $item['id'] ?>">
+                        <input type="hidden" name="last_completed_date" value="<?= date('Y-m-d', strtotime($item['last_completed_at'])) ?>">
+                        <input type="hidden" name="page" value="<?= (int) $page ?>">
+
+                        <div class="modal-body p-4">
+                            <!-- Maintenance Name -->
+                            <div class="mb-3">
+                                <label class="form-label text-light small fw-semibold mb-1" for="edit_name_<?= (int)$item['id'] ?>">
+                                    Maintenance Name <span class="text-danger">*</span>
+                                </label>
+                                <input class="form-control dark-input mt-0" id="edit_name_<?= (int)$item['id'] ?>" name="name" required minlength="2" maxlength="120" value="<?= e($item['name']) ?>">
+                            </div>
+
+                            <!-- Applies To -->
+                            <div class="mb-3">
+                                <label class="form-label text-light small fw-semibold mb-1" for="edit_service_<?= (int)$item['id'] ?>">Applies To</label>
+                                <select class="form-select dark-input mt-0" id="edit_service_<?= (int)$item['id'] ?>" name="service_id">
+                                    <option value="">Entire Machine</option>
+                                    <?php foreach ($services as $service): ?>
+                                        <option value="<?= (int) $service['id'] ?>" <?= $item['service_id'] == $service['id'] ? 'selected' : '' ?>>
+                                            <?= e($service['name']) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <!-- Reminder Type -->
+                            <div class="mb-3">
+                                <label class="form-label text-light small fw-semibold mb-2 d-block">Reminder Type</label>
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input edit-type-radio" type="radio" name="reminder_type" id="edit_type_cal_<?= (int)$item['id'] ?>" value="calendar" data-item-id="<?= (int)$item['id'] ?>" <?= $item['reminder_type'] === 'calendar' ? 'checked' : '' ?>>
+                                        <label class="form-check-label text-light small" for="edit_type_cal_<?= (int)$item['id'] ?>">Calendar</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input edit-type-radio" type="radio" name="reminder_type" id="edit_type_run_<?= (int)$item['id'] ?>" value="runtime" data-item-id="<?= (int)$item['id'] ?>" <?= $item['reminder_type'] === 'runtime' ? 'checked' : '' ?>>
+                                        <label class="form-check-label text-light small" for="edit_type_run_<?= (int)$item['id'] ?>">Runtime</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input edit-type-radio" type="radio" name="reminder_type" id="edit_type_both_<?= (int)$item['id'] ?>" value="both" data-item-id="<?= (int)$item['id'] ?>" <?= $item['reminder_type'] === 'both' ? 'checked' : '' ?>>
+                                        <label class="form-check-label text-light small" for="edit_type_both_<?= (int)$item['id'] ?>">Both</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Repeat Every (Calendar Interval Group) -->
+                            <div class="mb-3 <?= $item['reminder_type'] === 'runtime' ? 'd-none' : '' ?>" id="editCalendarGroup-<?= (int)$item['id'] ?>">
+                                <label class="form-label text-light small fw-semibold mb-1" for="edit_cal_val_<?= (int)$item['id'] ?>">
+                                    Repeat Every <span class="text-danger">*</span>
+                                </label>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <input class="form-control dark-input mt-0" id="edit_cal_val_<?= (int)$item['id'] ?>" type="number" min="1" step="1" name="calendar_interval_value" value="<?= e((string) $item['calendar_interval_value']) ?>" <?= $item['reminder_type'] === 'runtime' ? 'disabled' : '' ?>>
+                                    </div>
+                                    <div class="col-6">
+                                        <select class="form-select dark-input mt-0" name="calendar_interval_unit" <?= $item['reminder_type'] === 'runtime' ? 'disabled' : '' ?>>
+                                            <option value="days" <?= $item['calendar_interval_unit'] === 'days' ? 'selected' : '' ?>>Days</option>
+                                            <option value="weeks" <?= $item['calendar_interval_unit'] === 'weeks' ? 'selected' : '' ?>>Weeks</option>
+                                            <option value="months" <?= $item['calendar_interval_unit'] === 'months' ? 'selected' : '' ?>>Months</option>
+                                            <option value="years" <?= $item['calendar_interval_unit'] === 'years' ? 'selected' : '' ?>>Years</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Runtime Interval Group -->
+                            <div class="mb-3 <?= $item['reminder_type'] === 'calendar' ? 'd-none' : '' ?>" id="editRuntimeGroup-<?= (int)$item['id'] ?>">
+                                <label class="form-label text-light small fw-semibold mb-1" for="edit_run_val_<?= (int)$item['id'] ?>">
+                                    Runtime Interval (minutes) <span class="text-danger">*</span>
+                                </label>
+                                <input class="form-control dark-input mt-0" id="edit_run_val_<?= (int)$item['id'] ?>" type="number" min="1" step="1" name="runtime_interval_minutes" value="<?= $item['runtime_interval_seconds'] ? (int) $item['runtime_interval_seconds'] / 60 : '' ?>" placeholder="e.g. 500" <?= $item['reminder_type'] === 'calendar' ? 'disabled' : '' ?>>
+                                <small class="text-muted d-block mt-1" style="font-size: 0.78rem;">Based on accumulated service runtime.</small>
+                            </div>
+
+                            <!-- Reminder Enabled Toggle -->
+                            <div class="form-check form-switch mt-3">
+                                <input class="form-check-input" type="checkbox" role="switch" name="is_enabled" id="edit-enabled-<?= (int) $item['id'] ?>" <?= $item['is_enabled'] ? 'checked' : '' ?>>
+                                <label class="form-check-label text-light small" for="edit-enabled-<?= (int) $item['id'] ?>">Reminder enabled</label>
+                            </div>
+                        </div>
+
+                        <div class="modal-footer border-secondary border-opacity-25 px-4 py-3 d-flex flex-column gap-3">
+                            <div class="d-flex justify-content-between align-items-center w-100">
+                                <button type="button" class="btn btn-secondary px-3" data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn-maintenance-primary px-4">Save Changes</button>
+                            </div>
+                            <div class="w-100 pt-2 border-top border-secondary border-opacity-25 text-center">
+                                <button type="submit" form="deleteForm-<?= (int)$item['id'] ?>" class="btn btn-link text-danger text-decoration-none p-0 small fw-medium" onclick="return confirm('Are you sure you want to delete this reminder? This will not delete past maintenance history.');">
+                                    <i class="bi bi-trash3 me-1"></i>Delete this reminder
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <!-- Hidden standalone delete form -->
+                    <form method="post" action="<?= BASE_URL ?>/dashboard/maintenance.php" id="deleteForm-<?= (int)$item['id'] ?>" class="d-none">
+                        <input type="hidden" name="action" value="delete">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="item_id" value="<?= (int) $item['id'] ?>">
+                        <input type="hidden" name="page" value="<?= (int) $page ?>">
+                    </form>
+                </div>
+            </div>
+        </div>
+        <?php endforeach; ?>
+
+        <!-- ADD SERVICE REMINDER MODAL -->
+        <div class="modal fade" id="addReminderModal" tabindex="-1" aria-labelledby="addReminderModalLabel" aria-label="Add Service Reminder" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content text-light border-secondary border-opacity-25" style="background:#0f172a; border-color:#1e293b;">
+                    <div class="modal-header border-secondary border-opacity-25 pb-3">
+                        <h5 class="modal-title fw-bold text-white fs-6" id="addReminderModalLabel">
+                            <i class="bi bi-wrench-adjustable-circle me-2 text-primary-vl"></i>Add Reminder
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form method="post" id="modalAddReminderForm" action="<?= BASE_URL ?>/dashboard/maintenance.php" novalidate>
+                        <input type="hidden" name="action" value="add">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="last_completed_date" value="<?= date('Y-m-d') ?>">
+                        <input type="hidden" name="is_enabled" value="1">
+                        <input type="hidden" name="page" value="1">
+
+                        <div class="modal-body p-4">
+                            <!-- Maintenance Name -->
+                            <div class="mb-3">
+                                <label class="form-label text-light small fw-semibold mb-1" for="modal_rem_name">
+                                    Maintenance Name <span class="text-danger">*</span>
+                                </label>
+                                <input class="form-control dark-input mt-0" id="modal_rem_name" name="name" required minlength="2" maxlength="120" placeholder="e.g. Clean water filter">
+                                <div class="invalid-feedback">Please enter a maintenance name (2–120 characters).</div>
+                            </div>
+
+                            <!-- Applies To -->
+                            <div class="mb-3">
+                                <label class="form-label text-light small fw-semibold mb-1" for="modal_rem_service">Applies To</label>
+                                <select class="form-select dark-input mt-0" id="modal_rem_service" name="service_id">
+                                    <option value="">Entire Machine</option>
+                                    <?php foreach ($services as $service): ?>
+                                        <option value="<?= (int) $service['id'] ?>">
+                                            <?= e($service['name']) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <!-- Reminder Type -->
+                            <div class="mb-3">
+                                <label class="form-label text-light small fw-semibold mb-2 d-block">Reminder Type</label>
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="reminder_type" id="type_calendar" value="calendar" checked>
+                                        <label class="form-check-label text-light small" for="type_calendar">Calendar</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="reminder_type" id="type_runtime" value="runtime">
+                                        <label class="form-check-label text-light small" for="type_runtime">Runtime</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="reminder_type" id="type_both" value="both">
+                                        <label class="form-check-label text-light small" for="type_both">Both</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Repeat Every (Calendar Interval Group) -->
+                            <div class="mb-3" id="modalCalendarGroup">
+                                <label class="form-label text-light small fw-semibold mb-1" for="modal_rem_cal_val">
+                                    Repeat Every <span class="text-danger">*</span>
+                                </label>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <input class="form-control dark-input mt-0" id="modal_rem_cal_val" type="number" min="1" step="1" name="calendar_interval_value" value="1" placeholder="e.g. 1">
+                                    </div>
+                                    <div class="col-6">
+                                        <select class="form-select dark-input mt-0" id="modal_rem_cal_unit" name="calendar_interval_unit">
+                                            <option value="days">Days</option>
+                                            <option value="weeks">Weeks</option>
+                                            <option value="months" selected>Months</option>
+                                            <option value="years">Years</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="invalid-feedback d-none" id="modalCalFeedback">Please enter a valid interval (at least 1).</div>
+                            </div>
+
+                            <!-- Runtime Interval Group -->
+                            <div class="mb-3 d-none" id="modalRuntimeGroup">
+                                <label class="form-label text-light small fw-semibold mb-1" for="modal_rem_run_val">
+                                    Runtime Interval (minutes) <span class="text-danger">*</span>
+                                </label>
+                                <input class="form-control dark-input mt-0" id="modal_rem_run_val" type="number" min="1" step="1" name="runtime_interval_minutes" placeholder="e.g. 500" disabled>
+                                <div class="invalid-feedback d-none" id="modalRunFeedback">Please enter a valid runtime interval in minutes (at least 1).</div>
+                            </div>
+                        </div>
+
+                        <div class="modal-footer border-secondary border-opacity-25 px-4 py-3">
+                            <button type="button" class="btn btn-secondary px-3" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn-maintenance-primary px-4 d-inline-flex align-items-center" id="modalSubmitBtn">
+                                <i class="bi bi-plus-circle me-1.5"></i>Add Reminder
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
 
         <!-- Page Footer -->
         <footer class="app-footer">
@@ -529,180 +574,154 @@ function runtime_label(int $seconds): string
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const typeSelect      = document.getElementById('new_rem_type');
-    const serviceSelect   = document.getElementById('new_rem_service');
-    const dateInput       = document.getElementById('new_rem_date');
-    const calValInput     = document.getElementById('new_rem_cal_val');
-    const calUnitSelect   = document.getElementById('new_rem_cal_unit');
-    const runValInput     = document.getElementById('new_rem_run_val');
+    // --- ADD REMINDER MODAL LOGIC ---
+    const modalForm           = document.getElementById('modalAddReminderForm');
+    const modalNameInput      = document.getElementById('modal_rem_name');
+    const modalTypeRadios     = document.querySelectorAll('input[name="reminder_type"]');
+    const modalCalGroup       = document.getElementById('modalCalendarGroup');
+    const modalCalValInput    = document.getElementById('modal_rem_cal_val');
+    const modalCalUnitSelect  = document.getElementById('modal_rem_cal_unit');
+    const modalRunGroup       = document.getElementById('modalRuntimeGroup');
+    const modalRunValInput    = document.getElementById('modal_rem_run_val');
 
-    const calGroup        = document.getElementById('calendarIntervalGroup');
-    const runGroup        = document.getElementById('runtimeIntervalGroup');
-
-    const prevBadge       = document.getElementById('previewBadge');
-    const modeCal         = document.getElementById('previewCalendarMode');
-    const modeRun         = document.getElementById('previewRuntimeMode');
-    const modeBoth        = document.getElementById('previewBothMode');
-
-    // Calendar Elements
-    const prevCalLast     = document.getElementById('prevCalLast');
-    const prevCalInterval = document.getElementById('prevCalInterval');
-    const prevCalNext     = document.getElementById('prevCalNext');
-
-    // Runtime Elements
-    const prevRunInterval = document.getElementById('prevRunInterval');
-    const prevRunCurrent  = document.getElementById('prevRunCurrent');
-    const prevRunRemaining= document.getElementById('prevRunRemaining');
-
-    // Both Elements
-    const prevBothCalDue  = document.getElementById('prevBothCalDue');
-    const prevBothRunRemaining = document.getElementById('prevBothRunRemaining');
-
-    if (!typeSelect || !dateInput || !calValInput || !calUnitSelect || !runValInput) {
-        return;
-    }
-
-    function formatShortDate(d) {
-        if (!d || isNaN(d.getTime())) return '—';
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        const yyyy = d.getFullYear();
-        return `${mm}/${dd}/${yyyy}`;
-    }
-
-    function formatLongDate(d) {
-        if (!d || isNaN(d.getTime())) return '—';
-        return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    }
-
-    function calculateNextDate(dateStr, val, unit) {
-        if (!dateStr || !val || val <= 0) return null;
-        const parts = dateStr.split('-');
-        if (parts.length !== 3) return null;
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const day = parseInt(parts[2], 10);
-        const d = new Date(y, m, day);
-        if (isNaN(d.getTime())) return null;
-
-        if (unit === 'days') {
-            d.setDate(d.getDate() + val);
-        } else if (unit === 'weeks') {
-            d.setDate(d.getDate() + (val * 7));
-        } else if (unit === 'months') {
-            d.setMonth(d.getMonth() + val);
-        } else if (unit === 'years') {
-            d.setFullYear(d.getFullYear() + val);
-        }
-        return d;
-    }
-
-    function updateFormAndPreview() {
-        const type   = typeSelect.value;
+    function updateModalTypeVisibility() {
+        const checkedRadio = document.querySelector('input[name="reminder_type"]:checked');
+        const type = checkedRadio ? checkedRadio.value : 'calendar';
         const isCal  = (type === 'calendar');
         const isRun  = (type === 'runtime');
         const isBoth = (type === 'both');
 
-        // 1. Control Enabled / Disabled State (Values are NEVER cleared)
-        calValInput.disabled   = isRun;
-        calUnitSelect.disabled = isRun;
-        runValInput.disabled   = isCal;
-
-        calValInput.required   = (isCal || isBoth);
-        calUnitSelect.required = (isCal || isBoth);
-        runValInput.required   = (isRun || isBoth);
-
-        // Visual opacity styling for disabled sections
-        if (calGroup) {
-            calGroup.style.opacity = isRun ? '0.45' : '1';
-            calGroup.style.pointerEvents = isRun ? 'none' : 'auto';
-        }
-        if (runGroup) {
-            runGroup.style.opacity = isCal ? '0.45' : '1';
-            runGroup.style.pointerEvents = isCal ? 'none' : 'auto';
-        }
-
-        // 2. Toggle active preview layout
-        modeCal.classList.toggle('d-none', !isCal);
-        modeRun.classList.toggle('d-none', !isRun);
-        modeBoth.classList.toggle('d-none', !isBoth);
-
-        if (prevBadge) {
-            prevBadge.textContent = type.charAt(0).toUpperCase() + type.slice(1);
-        }
-
-        // 3. Compute Calendar Next Due
-        const dateVal      = dateInput.value;
-        const calInterval  = parseInt(calValInput.value, 10);
-        const calUnit      = calUnitSelect.value;
-        const calUnitLabel = calUnitSelect.options[calUnitSelect.selectedIndex]?.text || calUnit;
-
-        const nextDate     = calculateNextDate(dateVal, calInterval, calUnit);
-        const shortNextDue = nextDate ? formatShortDate(nextDate) : '—';
-        const longNextDue  = nextDate ? formatLongDate(nextDate) : '—';
-
-        let shortLastDate  = '—';
-        if (dateVal) {
-            const dp = dateVal.split('-');
-            if (dp.length === 3) {
-                shortLastDate = `${dp[1]}/${dp[2]}/${dp[0]}`;
+        // Calendar group
+        if (modalCalGroup && modalCalValInput && modalCalUnitSelect) {
+            modalCalGroup.classList.toggle('d-none', isRun);
+            modalCalValInput.disabled = isRun;
+            modalCalUnitSelect.disabled = isRun;
+            modalCalValInput.required = (isCal || isBoth);
+            modalCalUnitSelect.required = (isCal || isBoth);
+            if (isRun) {
+                modalCalValInput.classList.remove('is-invalid');
+                document.getElementById('modalCalFeedback')?.classList.add('d-none');
             }
         }
 
-        prevCalLast.textContent     = shortLastDate;
-        prevCalInterval.textContent = (calInterval > 0) ? `${calInterval} ${calUnitLabel}` : '—';
-        prevCalNext.textContent     = shortNextDue;
-
-        // 4. Compute Runtime Remaining
-        const selectedOpt    = serviceSelect ? serviceSelect.options[serviceSelect.selectedIndex] : null;
-        const currentRuntime = selectedOpt ? parseInt(selectedOpt.getAttribute('data-runtime-minutes') || '0', 10) : 0;
-        const runIntervalRaw = runValInput.value.trim();
-        const runInterval    = runIntervalRaw !== '' ? parseInt(runIntervalRaw, 10) : null;
-
-        let runIntervalText  = '—';
-        let remainingText    = '—';
-        let isDue            = false;
-
-        if (runInterval !== null && !isNaN(runInterval) && runInterval > 0) {
-            runIntervalText = `${runInterval} minutes`;
-            const remaining = Math.max(0, runInterval - currentRuntime);
-            if (currentRuntime >= runInterval) {
-                isDue = true;
-                remainingText = '0 minutes (Due)';
-            } else {
-                remainingText = `${remaining} minutes`;
+        // Runtime group
+        if (modalRunGroup && modalRunValInput) {
+            modalRunGroup.classList.toggle('d-none', isCal);
+            modalRunValInput.disabled = isCal;
+            modalRunValInput.required = (isRun || isBoth);
+            if (isCal) {
+                modalRunValInput.classList.remove('is-invalid');
+                document.getElementById('modalRunFeedback')?.classList.add('d-none');
             }
-        }
-
-        prevRunInterval.textContent  = runIntervalText;
-        prevRunCurrent.textContent   = `${currentRuntime} minutes`;
-        if (isDue) {
-            prevRunRemaining.innerHTML = '<span class="badge bg-warning text-dark">Due</span>';
-        } else {
-            prevRunRemaining.textContent = remainingText;
-        }
-
-        prevBothCalDue.textContent   = longNextDue;
-        if (isDue) {
-            prevBothRunRemaining.innerHTML = '<span class="badge bg-warning text-dark">Due</span>';
-        } else {
-            prevBothRunRemaining.textContent = remainingText;
         }
     }
 
-    // Immediate reactive updates on change or typing
-    typeSelect.addEventListener('change', updateFormAndPreview);
-    if (serviceSelect) serviceSelect.addEventListener('change', updateFormAndPreview);
-    dateInput.addEventListener('input', updateFormAndPreview);
-    dateInput.addEventListener('change', updateFormAndPreview);
-    calValInput.addEventListener('input', updateFormAndPreview);
-    calValInput.addEventListener('change', updateFormAndPreview);
-    calUnitSelect.addEventListener('change', updateFormAndPreview);
-    runValInput.addEventListener('input', updateFormAndPreview);
-    runValInput.addEventListener('change', updateFormAndPreview);
+    modalTypeRadios.forEach(function (radio) {
+        radio.addEventListener('change', updateModalTypeVisibility);
+    });
 
-    // Initial render
-    updateFormAndPreview();
+    // Initial state
+    updateModalTypeVisibility();
+
+    // Reset validation when modal opens
+    const addModalEl = document.getElementById('addReminderModal');
+    if (addModalEl) {
+        addModalEl.addEventListener('show.bs.modal', function () {
+            if (modalForm) {
+                modalForm.classList.remove('was-validated');
+                modalNameInput?.classList.remove('is-invalid');
+                modalCalValInput?.classList.remove('is-invalid');
+                modalRunValInput?.classList.remove('is-invalid');
+                document.getElementById('modalCalFeedback')?.classList.add('d-none');
+                document.getElementById('modalRunFeedback')?.classList.add('d-none');
+            }
+            updateModalTypeVisibility();
+        });
+    }
+
+    // Modal form submit validation
+    if (modalForm) {
+        modalForm.addEventListener('submit', function (e) {
+            let isValid = true;
+            const checkedRadio = document.querySelector('input[name="reminder_type"]:checked');
+            const type = checkedRadio ? checkedRadio.value : 'calendar';
+
+            // 1. Validate Name
+            const name = modalNameInput ? modalNameInput.value.trim() : '';
+            if (name.length < 2 || name.length > 120) {
+                modalNameInput.classList.add('is-invalid');
+                isValid = false;
+            } else {
+                modalNameInput.classList.remove('is-invalid');
+            }
+
+            // 2. Validate Calendar if needed
+            if (type === 'calendar' || type === 'both') {
+                const calVal = modalCalValInput ? parseInt(modalCalValInput.value, 10) : 0;
+                if (isNaN(calVal) || calVal < 1) {
+                    modalCalValInput.classList.add('is-invalid');
+                    document.getElementById('modalCalFeedback')?.classList.remove('d-none');
+                    isValid = false;
+                } else {
+                    modalCalValInput.classList.remove('is-invalid');
+                    document.getElementById('modalCalFeedback')?.classList.add('d-none');
+                }
+            }
+
+            // 3. Validate Runtime if needed
+            if (type === 'runtime' || type === 'both') {
+                const runVal = modalRunValInput ? parseInt(modalRunValInput.value, 10) : 0;
+                if (isNaN(runVal) || runVal < 1) {
+                    modalRunValInput.classList.add('is-invalid');
+                    document.getElementById('modalRunFeedback')?.classList.remove('d-none');
+                    isValid = false;
+                } else {
+                    modalRunValInput.classList.remove('is-invalid');
+                    document.getElementById('modalRunFeedback')?.classList.add('d-none');
+                }
+            }
+
+            if (!isValid) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+
+            const btn = document.getElementById('modalSubmitBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1.5" role="status" aria-hidden="true"></span>Saving...';
+            }
+        });
+    }
+
+    // --- EDIT MODAL DYNAMIC SHOW/HIDE ---
+    document.querySelectorAll('.edit-type-radio').forEach(function (radio) {
+        radio.addEventListener('change', function () {
+            const id = this.getAttribute('data-item-id');
+            const cal = document.getElementById('editCalendarGroup-' + id);
+            const run = document.getElementById('editRuntimeGroup-' + id);
+            const calValInput = document.getElementById('edit_cal_val_' + id);
+            const runValInput = document.getElementById('edit_run_val_' + id);
+            const val = this.value;
+            if (cal) cal.classList.toggle('d-none', val === 'runtime');
+            if (run) run.classList.toggle('d-none', val === 'calendar');
+            if (calValInput) calValInput.disabled = (val === 'runtime');
+            if (runValInput) runValInput.disabled = (val === 'calendar');
+        });
+    });
+
+    // --- CREATE FIRST REMINDER HANDLER ---
+    const btnCreateFirst = document.getElementById('btnCreateFirstReminder');
+    if (btnCreateFirst) {
+        btnCreateFirst.addEventListener('click', function () {
+            const addModalEl = document.getElementById('addReminderModal');
+            if (addModalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                const modalInstance = bootstrap.Modal.getOrCreateInstance(addModalEl);
+                modalInstance.show();
+            }
+        });
+    }
 });
 </script>
 

@@ -438,7 +438,7 @@ class User
              SET email_verified = 1,
                  status = "active",
                  email_verify_token = NULL,
-                 reset_token_expires = NULL,
+                 reset_token_expires = IF(reset_token IS NOT NULL, reset_token_expires, NULL),
                  updated_at = NOW()
              WHERE id = ?',
             [$userId]

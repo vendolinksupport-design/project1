@@ -1,0 +1,31 @@
+<?php
+/**
+ * ============================================================
+ * VendoLink — Local Mailer Configuration (Template)
+ * ============================================================
+ *
+ * Copy this file to "config/mail.local.php" and fill in your
+ * authenticated SMTP credentials.
+ *
+ * NOTE: "config/mail.local.php" is strictly ignored by Git and will
+ * never be committed or exposed to version control.
+ *
+ * FOR GMAIL:
+ * 1. Enable 2-Step Verification in your Google Account.
+ * 2. Go to: https://myaccount.google.com/apppasswords
+ * 3. Generate a 16-character App Password (e.g., "abcd efgh ijkl mnop").
+ * 4. Paste it into SMTP_PASS below (without spaces).
+ *
+ * FOR INFINITYFREE:
+ * Port 25 is blocked on InfinityFree. Use port 587 (TLS) or 465 (SSL).
+ */
+
+// define('SMTP_ENABLED',    true);
+// define('SMTP_HOST',       'smtp.gmail.com');
+// define('SMTP_PORT',       587); // 587 for TLS, 465 for SSL
+// define('SMTP_USER',       'your-email@gmail.com');
+// define('SMTP_PASS',       'your-16-char-app-password');
+// define('SMTP_SECURE',     'tls'); // 'tls' or 'ssl'
+// define('SMTP_FROM_EMAIL', 'your-email@gmail.com');
+// define('SMTP_FROM_NAME',  'VendoLink Support');
+// define('SMTP_TIMEOUT',    10);

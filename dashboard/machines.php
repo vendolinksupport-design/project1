@@ -10,8 +10,13 @@ require_once __DIR__ . '/../controllers/MachineController.php';
 require_role([ROLE_ADMIN, ROLE_OWNER]);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (($_POST['action'] ?? '') === 'save_lcd_config') {
+    $action = $_POST['action'] ?? '';
+    if ($action === 'save_lcd_config') {
         (new MachineController())->saveLcdConfiguration();
+    } elseif ($action === 'apply_machine_template') {
+        (new MachineController())->applyMachineTemplate();
+    } elseif ($action === 'claim_machine' || $action === 'add_machine') {
+        (new MachineController())->claimMachine();
     } else {
         (new MachineController())->saveServiceConfiguration();
     }
@@ -23,7 +28,21 @@ $user = current_user();
 
 $ownerId = current_owner_id();
 $machineModel = new Machine();
-$machine = $machineModel->primaryWithServices($ownerId);
+$allMachines = $machineModel->getAllActive($ownerId);
+
+// Resolve currently selected machine context
+$selectedMachineId = current_selected_machine_id($ownerId);
+$machine = null;
+if ($selectedMachineId > 0) {
+    $machine = $machineModel->getByIdWithServices($selectedMachineId, $ownerId);
+}
+if (!$machine && !empty($allMachines)) {
+    $machine = $machineModel->getByIdWithServices((int)$allMachines[0]['id'], $ownerId);
+}
+if (!$machine) {
+    $machine = $machineModel->primaryWithServices($ownerId);
+}
+
 $maintenanceSummaries = (new Maintenance())->summariesByService($ownerId);
 
 $machineAlerts = $machine ? $machineModel->getMachineAlerts($machine, $maintenanceSummaries) : [];
@@ -55,7 +74,7 @@ function runtime_clock_label(int $seconds): string {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?= ASSETS_URL ?>/css/app.css?v=<?= e((string) filemtime(ROOT_PATH . '/assets/css/app.css')) ?>">
 
-    <!-- Scoped LCD 2004A Simulator Styles -->
+    <!-- Scoped LCD 2004A Simulator & Machine Profile Styles -->
     <style>
         .lcd-sim-card {
             background: #0f172a;
@@ -75,6 +94,7 @@ function runtime_clock_label(int $seconds): string {
             letter-spacing: 0.12em;
             line-height: 1.6;
             text-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+            overflow-x: auto;
         }
         .lcd-line {
             height: 1.6rem;
@@ -85,6 +105,20 @@ function runtime_clock_label(int $seconds): string {
         .lcd-line:last-child {
             border-bottom: none;
         }
+        @media (max-width: 576px) {
+            .lcd-sim-card {
+                padding: 1rem 0.85rem;
+            }
+            .lcd-matrix-box {
+                padding: 0.75rem 0.6rem;
+                font-size: 0.8rem;
+                letter-spacing: 0.05em;
+            }
+            .lcd-line {
+                height: 1.35rem;
+                font-size: 0.76rem;
+            }
+        }
     </style>
 </head>
 <body class="dashboard-body">
@@ -94,20 +128,69 @@ function runtime_clock_label(int $seconds): string {
         <?php require_once __DIR__ . '/../views/layouts/topnav.php'; ?>
         <main class="page-content" id="pageContent">
             <?php if ($flashHtml = render_flash()): ?><div class="flash-container mb-3"><?= $flashHtml ?></div><?php endif; ?>
-            <div class="page-header mb-4">
+            <div class="page-header mb-4 d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-3">
                 <div>
                     <h1 class="page-title"><i class="bi bi-hdd-stack me-2"></i><?= term('machines') ?></h1>
-                    <p class="page-subtitle">Configure services and display settings for your machine.</p>
+                    <p class="page-subtitle mb-0">Configure services, LCD display templates, and telemetry for your vending fleet.</p>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-warning text-dark fw-bold px-3 py-2 shadow-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#addMachineModal">
+                        <i class="bi bi-plus-circle-fill"></i> Add Another Machine
+                    </button>
                 </div>
             </div>
 
+            <?php if (count($allMachines) > 1): ?>
+            <!-- Machine Fleet Quick Switcher Bar -->
+            <div class="p-3 mb-4 rounded-3 border border-secondary border-opacity-25" style="background: rgba(15, 23, 42, 0.65);">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="small text-muted text-uppercase fw-bold letter-spacing-1"><i class="bi bi-collection me-1 text-info"></i>Your Vending Fleet (<?= count($allMachines) ?>)</span>
+                    <span class="small text-muted d-none d-md-inline">Click a machine to manage its live configuration:</span>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <?php foreach ($allMachines as $mItem):
+                        $isCurrent = ($machine && (int)$mItem['id'] === (int)$machine['id']);
+                        $mItemStat = $mItem['calculated_status'] ?? 'offline';
+                        $mItemDot = ($mItemStat === 'online') ? 'status-online' : (($mItemStat === 'stale') ? 'status-warning' : 'status-offline');
+                        $mItemBadge = ($mItemStat === 'online') ? 'bg-success text-success' : (($mItemStat === 'stale') ? 'bg-warning text-warning' : 'bg-secondary text-secondary');
+                    ?>
+                    <a href="<?= BASE_URL ?>/dashboard/switch_machine.php?id=<?= (int)$mItem['id'] ?>&return_to=<?= urlencode(BASE_URL . '/dashboard/machines.php') ?>" 
+                       class="btn btn-sm d-flex align-items-center gap-2 px-3 py-2 text-start rounded-3 <?= $isCurrent ? 'btn-info text-dark fw-bold shadow-sm' : 'btn-dark border-secondary border-opacity-25 text-light' ?>"
+                       style="min-width: 175px;">
+                        <span class="status-dot <?= $mItemDot ?>"></span>
+                        <div class="min-w-0 flex-grow-1 text-truncate">
+                            <div class="text-truncate" style="font-size: 0.85rem;"><?= e($mItem['name']) ?></div>
+                            <div class="font-monospace small <?= $isCurrent ? 'text-dark opacity-75' : 'text-muted' ?>" style="font-size: 0.72rem;"><?= e($mItem['machine_code']) ?></div>
+                        </div>
+                        <span class="badge <?= $isCurrent ? 'bg-dark text-info' : $mItemBadge ?> bg-opacity-25 rounded-pill px-2 py-0.5" style="font-size: 0.68rem;">
+                            <?= ucfirst($mItemStat) ?>
+                        </span>
+                    </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <?php if (!$machine): ?>
-                <div class="alert alert-warning">Phase 2 database setup is required. Import <code>database/schema_v2_step1.sql</code> first.</div>
+                <div class="p-5 text-center rounded-3 border border-secondary border-opacity-25 my-4" style="background: rgba(15, 23, 42, 0.75);">
+                    <div class="rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 64px; height: 64px; background: rgba(56, 189, 248, 0.15); color: #38bdf8;">
+                        <i class="bi bi-hdd-network fs-2"></i>
+                    </div>
+                    <h4 class="text-light fw-bold mb-2">No Vending Machines Registered</h4>
+                    <p class="text-secondary small mb-4" style="max-width: 480px; margin: 0 auto;">
+                        Connect your first VendoLink machine using the Product Activation Key provided on the physical machine sticker.
+                    </p>
+                    <button type="button" class="btn btn-warning text-dark fw-bold px-4 py-2" data-bs-toggle="modal" data-bs-target="#addMachineModal">
+                        <i class="bi bi-plus-circle-fill me-1"></i> Add Your First Machine
+                    </button>
+                </div>
             <?php else: ?>
                 <?php
                 $calcStatus = $machine['calculated_status'] ?? 'offline';
                 $statusColor = ($calcStatus === 'online') ? 'success' : 'danger';
                 $statusLabel = ($calcStatus === 'online') ? term('online') : term('offline');
+                $machineType = $machine['machine_type'] ?? 'carwash';
+                $typeBadge = Machine::getMachineTypeBadge($machineType);
                 ?>
 
                 <!-- 1. MACHINE STATUS / HEADER -->
@@ -120,7 +203,12 @@ function runtime_clock_label(int $seconds): string {
                                         <i class="bi bi-hdd-network-fill mh-icon"></i>
                                     </div>
                                     <div class="mh-title-group">
-                                        <h3 class="mh-name"><?= e($machine['name']) ?></h3>
+                                        <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                                            <h3 class="mh-name mb-0"><?= e($machine['name']) ?></h3>
+                                            <span class="badge bg-<?= $typeBadge['color'] ?>-subtle text-<?= $typeBadge['color'] ?> border border-<?= $typeBadge['color'] ?> border-opacity-25 rounded-pill px-2.5 py-0.5" style="font-size: 0.72rem;">
+                                                <i class="bi <?= $typeBadge['icon'] ?> me-1"></i><?= e($typeBadge['label']) ?>
+                                            </span>
+                                        </div>
                                         <span class="mh-code"><?= e($machine['machine_code']) ?> &bull; KEY: <?= e($machine['machine_key']) ?></span>
                                     </div>
                                 </div>
@@ -176,20 +264,40 @@ function runtime_clock_label(int $seconds): string {
                     </div>
                 </div>
 
-                <!-- 📺 20x4 LCD SCREEN REAL-TIME SIMULATOR & CUSTOMIZER -->
+                <!-- 📺 1.5 MACHINE PROFILE & 20x4 LCD SCREEN CONTROLLER -->
                 <div class="lcd-sim-card mb-4 text-light">
-                    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between mb-3 gap-2">
+                    <!-- Top Bar: Merged Machine Profile Selector & Active Status -->
+                    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between pb-3 mb-3 border-bottom border-secondary border-opacity-25 gap-3">
                         <div>
-                            <h5 class="fw-bold mb-1 text-light"><i class="bi bi-display text-info me-2"></i>20x4 LCD Screen Live Simulator & Customizer</h5>
-                            <p class="text-slate-400 small mb-0">Design, preview, and format your physical LCD 2004A screen display in real-time.</p>
+                            <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                                <i class="bi bi-display text-info fs-5"></i>
+                                <h5 class="fw-bold mb-0 text-light">Machine Profile &amp; 20x4 LCD Screen</h5>
+                                <span class="badge bg-<?= $typeBadge['color'] ?>-subtle text-<?= $typeBadge['color'] ?> border border-<?= $typeBadge['color'] ?> border-opacity-25 rounded-pill px-2.5 py-0.5" style="font-size: 0.72rem;">
+                                    Active: <?= e($typeBadge['label']) ?>
+                                </span>
+                            </div>
+                            <p class="text-slate-400 small mb-0">Select your hardware profile (Carwash, Tire Air, Blower) and customize your real-time 2004A LCD display.</p>
                         </div>
-                        <div>
-                            <select id="lcdTemplateSelect" class="form-select form-select-sm bg-dark text-info border-secondary border-opacity-25" style="width: auto;">
-                                <option value="">-- Select Preset Template --</option>
-                                <option value="carwash">🚗 Carwash Vendo Template</option>
-                                <option value="blank">⚡ Blank / Custom</option>
-                            </select>
-                        </div>
+
+                        <!-- Merged Compact Profile Switcher Form -->
+                        <form method="POST" class="d-flex align-items-center gap-2 m-0 flex-wrap flex-sm-nowrap" data-confirm-save="true" data-confirm-message="Switch machine profile to the selected template? This will update service names and set LCD screen presets.">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="action" value="apply_machine_template">
+                            <input type="hidden" name="machine_id" value="<?= (int)$machine['id'] ?>">
+                            <div class="input-group input-group-sm w-100 w-sm-auto">
+                                <span class="input-group-text bg-dark text-slate-300 border-secondary border-opacity-25 small fw-semibold">
+                                    <i class="bi bi-gear-fill me-1 text-info"></i> Profile
+                                </span>
+                                <select name="machine_template" id="machineTemplateSelect" class="form-select bg-dark text-light border-secondary border-opacity-25" style="min-width: 175px;">
+                                    <option value="carwash" <?= $machineType === 'carwash' ? 'selected' : '' ?>>🚗 Carwash Vendo</option>
+                                    <option value="air_blower" <?= $machineType === 'air_blower' ? 'selected' : '' ?>>💨 Tire Air &amp; Blower</option>
+                                    <option value="tire_air" <?= $machineType === 'tire_air' ? 'selected' : '' ?>>🔘 Solo Tire Inflator</option>
+                                </select>
+                                <button type="submit" class="btn btn-info text-dark fw-bold px-3 d-flex align-items-center gap-1">
+                                    <i class="bi bi-check-lg"></i> Apply
+                                </button>
+                            </div>
+                        </form>
                     </div>
 
                     <div class="row g-4">
@@ -202,7 +310,7 @@ function runtime_clock_label(int $seconds): string {
                                 </div>
                                 <!-- Green/Blue Matrix Display Box -->
                                 <div class="lcd-matrix-box mt-2">
-                                    <div class="lcd-line" id="simLine1"><?= e(str_pad(mb_substr($machine['lcd_line1'] ?? '== VendoLink v2.2 ==', 0, 20), 20, ' ')) ?></div>
+                                    <div class="lcd-line" id="simLine1"><?= e(str_pad(mb_substr($machine['lcd_line1'] ?? '== VendoLink v3.0 ==', 0, 20), 20, ' ')) ?></div>
                                     <div class="lcd-line" id="simLine2"><?= e(str_pad(mb_substr($machine['lcd_line2'] ?? 'WELCOME CUSTOMER!', 0, 20), 20, ' ')) ?></div>
                                     <div class="lcd-line" id="simLine3"><?= e(str_pad(mb_substr($machine['lcd_line3'] ?? 'INSERT COIN FIRST!', 0, 20), 20, ' ')) ?></div>
                                     <div class="lcd-line" id="simLine4"><?= e(str_pad(mb_substr($machine['lcd_line4'] ?? 'WATER:P5 | SOAP:P5', 0, 20), 20, ' ')) ?></div>
@@ -220,13 +328,25 @@ function runtime_clock_label(int $seconds): string {
                                 <input type="hidden" name="action" value="save_lcd_config">
                                 <input type="hidden" name="machine_id" value="<?= (int)$machine['id'] ?>">
 
+                                <div class="d-flex align-items-center justify-content-between mb-2 pb-1">
+                                    <span class="small text-slate-300 fw-bold text-uppercase letter-spacing-1">Custom Display Lines</span>
+                                    <div class="d-flex align-items-center gap-1.5">
+                                        <button type="button" id="btnResetToProfile" class="btn btn-outline-secondary btn-sm py-0.5 px-2 text-slate-300" style="font-size: 0.72rem;" title="Reset lines to selected profile defaults">
+                                            <i class="bi bi-arrow-counterclockwise me-1 text-info"></i>Reset Defaults
+                                        </button>
+                                        <button type="button" id="btnClearLcd" class="btn btn-outline-secondary btn-sm py-0.5 px-2 text-slate-400" style="font-size: 0.72rem;" title="Clear all lines">
+                                            <i class="bi bi-eraser me-1"></i>Clear
+                                        </button>
+                                    </div>
+                                </div>
+
                                 <!-- Line 1 Input -->
                                 <div class="mb-3">
                                     <div class="d-flex justify-content-between align-items-center mb-1">
                                         <label class="form-label text-slate-300 small fw-bold mb-0">LINE 1 (HEADER / TITLE)</label>
                                         <span class="badge bg-dark text-info border border-info border-opacity-25 px-2 py-1" id="countLine1">0/20</span>
                                     </div>
-                                    <input type="text" maxlength="20" id="inputLine1" name="lcd_line1" class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-25 font-monospace px-3 py-2" value="<?= e($machine['lcd_line1'] ?? '== VendoLink v2.2 ==') ?>">
+                                    <input type="text" maxlength="20" id="inputLine1" name="lcd_line1" class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-25 font-monospace px-3 py-2" value="<?= e($machine['lcd_line1'] ?? '== VendoLink v3.0 ==') ?>">
                                 </div>
 
                                 <!-- Line 2 Input -->
@@ -257,7 +377,7 @@ function runtime_clock_label(int $seconds): string {
                                 </div>
 
                                 <button type="submit" class="btn btn-info w-100 fw-bold py-2 text-dark">
-                                    <i class="bi bi-send-check-fill me-2"></i>Save &amp; Push Template to Physical Screen
+                                    <i class="bi bi-send-check-fill me-2"></i>Save &amp; Push Display to Screen
                                 </button>
                             </form>
                         </div>
@@ -287,8 +407,10 @@ function runtime_clock_label(int $seconds): string {
                         <div class="row g-4">
                         <?php foreach ($machine['services'] as $service):
                             $isWater = $service['service_key'] === 'water';
-                            $serviceTitle = $isWater ? 'Water Service' : 'Soap Service';
-                            $serviceIcon = $isWater ? 'bi-droplet-fill text-info' : 'bi-sparkles text-warning';
+                            $serviceTitle = !empty($service['name']) ? $service['name'] : ($isWater ? 'Water Service' : 'Soap Service');
+                            $serviceType = $service['type'] ?? ($isWater ? 'water' : 'soap');
+                            $isAir = ($serviceType === 'air' || stripos($serviceTitle, 'Air') !== false);
+                            $isBlower = ($serviceType === 'blower' || stripos($serviceTitle, 'Blower') !== false);
                             $isRunning = (bool) ($service['is_running'] ?? false);
                             $maintenanceSummary = $maintenanceSummaries[$service['service_key']] ?? null;
                             $serviceKey = e($service['service_key']);
@@ -297,13 +419,20 @@ function runtime_clock_label(int $seconds): string {
                             <div class="col-12 col-lg-6">
                                 <div class="service-section-box p-3 p-md-4 rounded-3 h-100" data-service-section="<?= $serviceKey ?>">
                                     <input type="hidden" name="services[<?= $serviceId ?>][id]" value="<?= $serviceId ?>">
-                                    <input type="hidden" name="services[<?= $serviceId ?>][name]" value="<?= e($serviceTitle) ?>">
                                     <input type="hidden" name="services[<?= $serviceId ?>][key]" value="<?= $serviceKey ?>">
                                     <input type="hidden" name="services[<?= $serviceId ?>][coin_value]" value="5.00">
 
                                     <div class="service-card-header mb-3">
                                         <div class="service-card-title-group">
-                                            <?php if ($isWater): ?>
+                                            <?php if ($isAir): ?>
+                                                <div class="service-icon-badge" style="background: rgba(56,189,248,.15); color: #38bdf8;" title="Tire Air Compressor">
+                                                    <i class="bi bi-speedometer2"></i>
+                                                </div>
+                                            <?php elseif ($isBlower): ?>
+                                                <div class="service-icon-badge" style="background: rgba(245,158,11,.15); color: #f59e0b;" title="Car Blower Fan">
+                                                    <i class="bi bi-wind"></i>
+                                                </div>
+                                            <?php elseif ($isWater): ?>
                                                 <div class="service-icon-badge service-icon-water" title="Water Service">
                                                     <i class="bi bi-droplet-fill"></i>
                                                 </div>
@@ -325,8 +454,10 @@ function runtime_clock_label(int $seconds): string {
                                                 </div>
                                             <?php endif; ?>
                                             <div>
-                                                <h5 class="service-card-title mb-0 fw-bold text-light"><?= e($serviceTitle) ?></h5>
-                                                <span class="service-card-key text-slate-400 font-monospace small"><?= $serviceKey ?></span>
+                                                <div class="d-flex align-items-center gap-2 mb-1">
+                                                    <input type="text" name="services[<?= $serviceId ?>][name]" class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-25 fw-bold px-2 py-0.5" value="<?= e($serviceTitle) ?>" style="max-width: 190px; font-size: 0.95rem;" title="Edit service display name">
+                                                </div>
+                                                <span class="service-card-key text-slate-400 font-monospace small">Relay <?= $isWater ? '1 (GPIO 25)' : '2 (GPIO 33)' ?> &bull; <?= $serviceKey ?></span>
                                             </div>
                                         </div>
                                         <span class="badge bg-<?= $service['is_enabled'] ? 'success' : 'secondary' ?> rounded-pill px-3 py-1.5 fw-semibold service-status-pill" id="statusPill-<?= $serviceId ?>">
@@ -398,13 +529,13 @@ function runtime_clock_label(int $seconds): string {
                         </div>
                     </form>
 
-                <!-- RECENT ACTIVITY STREAM -->
+                <!-- RECENT MACHINE CONFIGURATION ACTIVITY -->
                 <section class="activity-card">
                     <div class="d-flex align-items-center justify-content-between mb-3">
-                        <h5 class="fw-bold mb-0 text-light"><i class="bi bi-clock-history text-info me-2"></i><?= term('machine_activity') ?></h5>
-                        <button class="btn-view-activity" type="button" data-bs-toggle="modal" data-bs-target="#activityHistoryModal">
-                            <?= term('view_activity') ?>
-                        </button>
+                        <h5 class="fw-bold mb-0 text-light"><i class="bi bi-sliders text-info me-2"></i><?= term('machine_configuration', 'Machine Configuration') ?></h5>
+                        <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=configuration" class="btn-view-activity text-decoration-none d-inline-flex align-items-center">
+                            <?= term('view_more', 'View More') ?>
+                        </a>
                     </div>
                     <div class="activity-list">
                         <?php if (empty($recentActivities)): ?>
@@ -464,23 +595,66 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // Preset Template Dropdown Handler
-    const templateSelect = document.getElementById('lcdTemplateSelect');
-    if (templateSelect) {
-        templateSelect.addEventListener('change', function () {
-            const val = this.value;
-            if (val === 'carwash') {
-                inputs[0].input.value = '== KENJI CARWASH ==';
-                inputs[1].input.value = 'WELCOME CUSTOMER!';
-                inputs[2].input.value = 'INSERT COIN FIRST!';
-                inputs[3].input.value = 'WATER:P5 | SOAP:P5';
-            } else if (val === 'blank') {
-                inputs[0].input.value = '';
-                inputs[1].input.value = '';
-                inputs[2].input.value = '';
-                inputs[3].input.value = '';
+    // Profile LCD Presets Map
+    const profilePresets = {
+        carwash: [
+            '== KENJI CARWASH ==',
+            'WELCOME CUSTOMER!',
+            'INSERT COIN FIRST!',
+            'WATER:P5 | SOAP:P5'
+        ],
+        air_blower: [
+            '== AIR & BLOWER ==',
+            'AIR & BLOWER READY!',
+            'INSERT COIN FIRST!',
+            'AIR:P5  | BLOWER:P5'
+        ],
+        tire_air: [
+            '== TIRE INFLATOR ==',
+            'TIRE AIR READY!',
+            'INSERT COIN FIRST!',
+            'TIRE AIR: P5 / 2MIN'
+        ]
+    };
+
+    function applyLcdPreset(presetKey) {
+        const lines = profilePresets[presetKey];
+        if (!lines) return;
+        lines.forEach((text, i) => {
+            if (inputs[i] && inputs[i].input) {
+                inputs[i].input.value = text;
+                updateSimLine(inputs[i]);
             }
-            inputs.forEach(item => updateSimLine(item));
+        });
+    }
+
+    // Live preview when user changes the unified Profile dropdown
+    const machineTemplateSelect = document.getElementById('machineTemplateSelect');
+    if (machineTemplateSelect) {
+        machineTemplateSelect.addEventListener('change', function () {
+            applyLcdPreset(this.value);
+        });
+    }
+
+    // Reset Defaults button handler
+    const btnResetToProfile = document.getElementById('btnResetToProfile');
+    if (btnResetToProfile) {
+        btnResetToProfile.addEventListener('click', function () {
+            const currentVal = machineTemplateSelect ? machineTemplateSelect.value : '<?= e($machineType) ?>';
+            applyLcdPreset(currentVal);
+        });
+    }
+
+    // Clear all lines button handler
+    const btnClearLcd = document.getElementById('btnClearLcd');
+    if (btnClearLcd) {
+        btnClearLcd.addEventListener('click', function () {
+            inputs.forEach(item => {
+                if (item.input) {
+                    item.input.value = '';
+                    updateSimLine(item);
+                }
+            });
         });
     }
 });

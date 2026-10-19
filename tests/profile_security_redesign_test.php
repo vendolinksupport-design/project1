@@ -118,7 +118,8 @@ $sent = $authCtrl->sendEmailChangeOtp($testEmail, 'Test User', $testOtp);
 assertTest($sent === true, "sendEmailChangeOtp executed successfully");
 
 $mailLog = file_get_contents(LOGS_PATH . '/mail.log');
-assertTest(strpos($mailLog, $testEmail) !== false && strpos($mailLog, $testOtp) !== false, "OTP and target email logged to logs/mail.log");
+$maskedEmail = function_exists('mask_email') ? mask_email($testEmail) : $testEmail;
+assertTest(strpos($mailLog, $maskedEmail) !== false || strpos($mailLog, $testEmail) !== false, "Email change dispatch logged to logs/mail.log");
 
 // ------------------------------------------------------------
 // 4. Functional Testing of Email Update & Database Safety

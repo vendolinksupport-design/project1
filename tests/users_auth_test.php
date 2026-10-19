@@ -59,6 +59,10 @@ $existingStaff = $userModel->findByEmail($staffEmail);
 if ($existingStaff) {
     $userModel->delete((int)$existingStaff['id']);
 }
+$existingUpdated = $userModel->findByEmail('staff.updated@vendolink.local');
+if ($existingUpdated) {
+    $userModel->delete((int)$existingUpdated['id']);
+}
 
 $staffId = $userModel->create([
     'full_name' => 'Test Staff Member',

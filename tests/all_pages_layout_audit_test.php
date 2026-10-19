@@ -35,6 +35,9 @@ foreach ($pages as $p) {
         continue;
     }
     $c = file_get_contents($fullPath);
+    if (strpos($c, "require __DIR__ . '/../machines/index.php'") !== false) {
+        $c = file_get_contents(__DIR__ . '/../admin/machines/index.php');
+    }
     $hasBody = strpos($c, 'dashboard-body') !== false || strpos($c, 'admin-body') !== false;
     $hasShell = strpos($c, 'app-shell') !== false || strpos($c, 'admin-shell') !== false;
     $hasMain = strpos($c, 'main-content') !== false;

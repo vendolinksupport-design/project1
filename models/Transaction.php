@@ -181,11 +181,12 @@ class Transaction
                 ? $actualRuntimeSeconds
                 : (($status === 'completed') ? $runtimeSeconds : 0);
 
+            $createdAt = date('Y-m-d H:i:s');
             $this->db->query(
                 'INSERT INTO service_transactions
                     (machine_id, client_transaction_id, service_id, amount, coin_value_at_purchase,
-                     service_seconds_at_purchase, runtime_generated_seconds, actual_runtime_seconds, status, status_reason, completed_at)
-                 VALUES (:machine_id, :client_tx_id, :service_id, :amount, :coin_value, :service_seconds, :runtime_seconds, :actual_runtime, :status, :status_reason, :completed_at)',
+                     service_seconds_at_purchase, runtime_generated_seconds, actual_runtime_seconds, status, status_reason, completed_at, created_at)
+                 VALUES (:machine_id, :client_tx_id, :service_id, :amount, :coin_value, :service_seconds, :runtime_seconds, :actual_runtime, :status, :status_reason, :completed_at, :created_at)',
                 [
                     ':machine_id'      => $service['machine_id'],
                     ':client_tx_id'    => !empty($clientTxId) ? $clientTxId : null,
@@ -198,6 +199,7 @@ class Transaction
                     ':status'          => $status,
                     ':status_reason'   => $statusReason,
                     ':completed_at'    => $completedAt,
+                    ':created_at'      => $createdAt,
                 ]
             );
 
@@ -269,6 +271,12 @@ class Transaction
             }
         }
 
+        // Machine filter
+        if (!empty($filters['machine']) && $filters['machine'] !== 'all') {
+            $where[] = 'st.machine_id = :filter_machine_id';
+            $params[':filter_machine_id'] = (int) $filters['machine'];
+        }
+
         // Service filter
         if (!empty($filters['service']) && $filters['service'] !== 'all') {
             if (is_numeric($filters['service'])) {
@@ -280,10 +288,20 @@ class Transaction
             }
         }
 
-        // Status filter
+        // Status filter:
+        // 'completed'   => st.status = 'completed'
+        // 'incomplete'  => st.status IN ('incomplete', 'interrupted')
+        // 'unsuccessful'=> st.status IN ('cancelled', 'failed')
         if (!empty($filters['status']) && $filters['status'] !== 'all') {
-            $where[] = 'st.status = :status';
-            $params[':status'] = $filters['status'];
+            $stFilter = strtolower(trim($filters['status']));
+            if ($stFilter === 'incomplete') {
+                $where[] = "st.status IN ('incomplete', 'interrupted')";
+            } elseif ($stFilter === 'unsuccessful') {
+                $where[] = "st.status IN ('cancelled', 'failed')";
+            } else {
+                $where[] = 'st.status = :status';
+                $params[':status'] = $stFilter;
+            }
         }
 
         // Date range filter
@@ -384,7 +402,7 @@ class Transaction
                 "SELECT COALESCE(SUM(st.amount), 0) AS sales, COUNT(*) AS count
                  FROM service_transactions st
                  {$machineJoin}
-                 WHERE st.status = 'completed' AND DATE(st.created_at) = CURDATE() {$ownerWhere}",
+                 WHERE st.status = 'completed' AND DATE(COALESCE(st.completed_at, st.created_at)) = CURDATE() {$ownerWhere}",
                 $ownerParams
             )->fetch();
             if ($today) {
@@ -532,9 +550,20 @@ class Transaction
             }
         }
 
+        // Status filter:
+        // 'completed'   => st.status = 'completed'
+        // 'incomplete'  => st.status IN ('incomplete', 'interrupted')
+        // 'unsuccessful'=> st.status IN ('cancelled', 'failed')
         if (!empty($filters['status']) && $filters['status'] !== 'all') {
-            $where[] = 'st.status = :status';
-            $params[':status'] = $filters['status'];
+            $stFilter = strtolower(trim($filters['status']));
+            if ($stFilter === 'incomplete') {
+                $where[] = "st.status IN ('incomplete', 'interrupted')";
+            } elseif ($stFilter === 'unsuccessful') {
+                $where[] = "st.status IN ('cancelled', 'failed')";
+            } else {
+                $where[] = 'st.status = :status';
+                $params[':status'] = $stFilter;
+            }
         }
 
         if (!empty($dateFrom)) {
@@ -637,9 +666,20 @@ class Transaction
             }
         }
 
+        // Status filter:
+        // 'completed'   => st.status = 'completed'
+        // 'incomplete'  => st.status IN ('incomplete', 'interrupted')
+        // 'unsuccessful'=> st.status IN ('cancelled', 'failed')
         if (!empty($filters['status']) && $filters['status'] !== 'all') {
-            $where[] = 'st.status = :status';
-            $params[':status'] = $filters['status'];
+            $stFilter = strtolower(trim($filters['status']));
+            if ($stFilter === 'incomplete') {
+                $where[] = "st.status IN ('incomplete', 'interrupted')";
+            } elseif ($stFilter === 'unsuccessful') {
+                $where[] = "st.status IN ('cancelled', 'failed')";
+            } else {
+                $where[] = 'st.status = :status';
+                $params[':status'] = $stFilter;
+            }
         }
 
         if (!empty($dateFrom)) {
@@ -771,8 +811,15 @@ class Transaction
      */
     public static function resolveStatusLabel(string $statusKey): string
     {
+        $statusKey = strtolower(trim($statusKey));
         if (empty($statusKey) || $statusKey === 'all') {
             return 'All Statuses';
+        }
+        if ($statusKey === 'incomplete') {
+            return 'Incomplete';
+        }
+        if ($statusKey === 'unsuccessful') {
+            return 'Unsuccessful';
         }
         return ucfirst($statusKey);
     }
@@ -931,6 +978,116 @@ class Transaction
     }
 
     /**
+     * Export complete Cash Collections Report CSV matching current filters.
+     * Contains Title, Date Range, Filter info, Summary Block, and Collection Records table.
+     *
+     * @param array    $filters [search, date_from, date_to]
+     * @param int|null $ownerId
+     */
+    public function exportCashCollectionsCsv(array $filters = [], ?int $ownerId = null): void
+    {
+        $periodInfo = self::resolvePeriodInfo($filters);
+        $rows = $this->getCashCollections(0, $ownerId, $filters);
+
+        $filename = 'vendolink-cash-collections-' . $periodInfo['slug'] . '.csv';
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        if (!headers_sent()) {
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+            header('Pragma: no-cache');
+            header('Expires: 0');
+        }
+
+        $output = fopen('php://output', 'w');
+        // UTF-8 BOM for Excel / Windows / Mac compatibility
+        fprintf($output, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+        // 1. Report Header
+        fputcsv($output, ['VendoLink — Cash Collections Audit Report']);
+        fputcsv($output, ['Date Range', $periodInfo['label']]);
+        fputcsv($output, ['Search', !empty($filters['search']) ? $filters['search'] : 'None']);
+        fputcsv($output, ['Export Date & Time', date('M j, Y, g:i A')]);
+        fputcsv($output, []); // blank line
+
+        // 2. Summary Calculations from filtered dataset
+        $totalCollected = 0.0;
+        $totalSystemSales = 0.0;
+        $totalVariance = 0.0;
+        $totalRecords = count($rows);
+
+        foreach ($rows as $r) {
+            $totalCollected += (float)($r['collected_amount'] ?? 0);
+            $totalSystemSales += (float)($r['system_sales_amount'] ?? 0);
+            $totalVariance += (float)($r['variance_amount'] ?? 0);
+        }
+
+        $varianceLabel = ($totalVariance > 0) ? '+₱' . number_format($totalVariance, 2, '.', '') . ' (Net Surplus)'
+                       : (($totalVariance < 0) ? '-₱' . number_format(abs($totalVariance), 2, '.', '') . ' (Net Shortage)'
+                       : '₱0.00 (Balanced)');
+
+        // 3. Collections Summary block
+        fputcsv($output, ['RECONCILIATION SUMMARY']);
+        fputcsv($output, ['Total Collection Records', (string)$totalRecords]);
+        fputcsv($output, ['Total Physical Cash Collected', '₱' . number_format($totalCollected, 2, '.', '')]);
+        fputcsv($output, ['Total System Sales Target', '₱' . number_format($totalSystemSales, 2, '.', '')]);
+        fputcsv($output, ['Total Net Variance', $varianceLabel]);
+        fputcsv($output, []); // blank line
+
+        // 4. Collection Records block
+        fputcsv($output, ['COLLECTION RECORDS']);
+
+        if (empty($rows)) {
+            fputcsv($output, ['No cash collection records found.']);
+        } else {
+            fputcsv($output, [
+                'Collection ID',
+                'Collection Date & Time',
+                'Machine',
+                'Recorded By',
+                'Physical Cash Collected',
+                'System Sales Target',
+                'Variance Amount',
+                'Variance Status',
+                'Notes',
+            ]);
+
+            foreach ($rows as $r) {
+                $var = (float)($r['variance_amount'] ?? 0);
+                $varStatus = ($var == 0) ? 'Matched' : (($var > 0) ? 'Above' : 'Below');
+                $varFormatted = ($var > 0 ? '+₱' : ($var < 0 ? '-₱' : '₱')) . number_format(abs($var), 2, '.', '');
+                $machineDisplayName = preg_replace('/^VendoLink\s+/i', '', $r['machine_name'] ?: 'Machine 01');
+
+                fputcsv($output, [
+                    '#' . str_pad((string) $r['id'], 5, '0', STR_PAD_LEFT),
+                    $r['collected_at'],
+                    sanitize_excel_cell($machineDisplayName),
+                    sanitize_excel_cell($r['full_name'] ?? '—'),
+                    '₱' . number_format((float)$r['collected_amount'], 2, '.', ''),
+                    '₱' . number_format((float)$r['system_sales_amount'], 2, '.', ''),
+                    $varFormatted,
+                    $varStatus,
+                    sanitize_excel_cell($r['notes'] ?? ''),
+                ]);
+            }
+        }
+
+        // 5. Bottom Totals block (below table, preceded by 1 blank line)
+        fputcsv($output, []);
+        fputcsv($output, ['Total Physical Cash Collected', '₱' . number_format($totalCollected, 2, '.', '')]);
+        fputcsv($output, ['Total System Sales Target', '₱' . number_format($totalSystemSales, 2, '.', '')]);
+        fputcsv($output, ['Total Net Variance', $varianceLabel]);
+        fputcsv($output, ['Total Collection Records', (string)$totalRecords]);
+
+        fclose($output);
+        exit;
+    }
+
+    /**
      * Format duration in seconds to human readable string (e.g. 0s -> "0 sec", 120s -> "2 min", 4830s -> "1h 20m 30s").
      *
      * @param int $seconds
@@ -979,9 +1136,10 @@ class Transaction
         $conditions = [];
         $params = [];
 
-        if ($machineId > 0) {
+        $mid = $machineId > 0 ? $machineId : (int)($filters['machine_id'] ?? $filters['machine'] ?? 0);
+        if ($mid > 0) {
             $conditions[] = "cc.machine_id = :mid";
-            $params[':mid'] = $machineId;
+            $params[':mid'] = $mid;
         }
 
         if ($ownerId !== null && $ownerId > 0) {
@@ -998,15 +1156,28 @@ class Transaction
             $conditions[] = "DATE(cc.collected_at) <= :date_to";
             $params[':date_to'] = $filters['date_to'];
         }
+
+        // Reconciliation filter (Matched, Above, Below)
+        $recon = strtolower(trim($filters['reconciliation'] ?? $filters['status'] ?? 'all'));
+        if ($recon === 'matched') {
+            $conditions[] = "ABS(cc.variance_amount) < 0.001";
+        } elseif ($recon === 'above') {
+            $conditions[] = "cc.variance_amount > 0.001";
+        } elseif ($recon === 'below') {
+            $conditions[] = "cc.variance_amount < -0.001";
+        }
+
         if (!empty($filters['search'])) {
-            $conditions[] = "(cc.notes LIKE :search OR u.full_name LIKE :search OR m.name LIKE :search)";
-            $params[':search'] = '%' . $filters['search'] . '%';
+            $conditions[] = "(cc.notes LIKE :search_cc1 OR u.full_name LIKE :search_cc2 OR m.name LIKE :search_cc3)";
+            $params[':search_cc1'] = '%' . $filters['search'] . '%';
+            $params[':search_cc2'] = '%' . $filters['search'] . '%';
+            $params[':search_cc3'] = '%' . $filters['search'] . '%';
         }
 
         $where = !empty($conditions) ? implode(" AND ", $conditions) : "1=1";
 
         return $this->db->query(
-            "SELECT cc.*, u.full_name, m.name AS machine_name
+            "SELECT cc.*, u.full_name, m.name AS machine_name, m.machine_code
              FROM cash_collections cc
              JOIN users u ON cc.user_id = u.id
              JOIN machines m ON cc.machine_id = m.id

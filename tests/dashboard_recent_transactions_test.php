@@ -189,10 +189,10 @@ echo "\n3. Verifying 'View All' Link & Full History Page...\n";
 if (strpos($html5, 'href="' . BASE_URL . '/dashboard/archive.php"') === false) {
     throw new RuntimeException("'View All' button does not link to dashboard/archive.php");
 }
-if (strpos($html5, 'View All') === false) {
-    throw new RuntimeException("Missing 'View All' button text on Dashboard Transaction Records");
+if (strpos($html5, 'View All') === false && strpos($html5, 'View More') === false) {
+    throw new RuntimeException("Missing 'View More' / 'View All' button text on Dashboard Transaction Records");
 }
-echo "   [PASS] 'View All' button points to " . BASE_URL . "/dashboard/archive.php\n";
+echo "   [PASS] 'View More' button points to " . BASE_URL . "/dashboard/archive.php\n";
 
 // Check dashboard/archive.php per_page setting
 $archivePhpContent = file_get_contents(__DIR__ . '/../dashboard/archive.php');

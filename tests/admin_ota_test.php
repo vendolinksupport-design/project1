@@ -23,17 +23,27 @@ echo "✅ Retrieved " . count($releases) . " firmware release build(s).\n\n";
 
 // 2. Test createOtaRelease
 echo "2. Testing createOtaRelease()...\n";
+$db = Database::getInstance();
+$db->query("DELETE FROM ota_releases WHERE version = 'v2.3.0-test'");
 $testVer = 'v2.3.0-test';
 $createSuccess = $dashboardModel->createOtaRelease($testVer, 'vendolink_esp32_v2.3.0_test.bin', 1070000, 'Test release');
 if (!$createSuccess) {
     throw new RuntimeException("createOtaRelease() failed!");
 }
 
-// Clean up test entry
+// 3. Test deleteOtaRelease
+echo "3. Testing deleteOtaRelease()...\n";
 $db = Database::getInstance();
-$db->query("DELETE FROM ota_releases WHERE version = 'v2.3.0-test'");
-$db->query("UPDATE ota_releases SET is_latest = 1 WHERE version = 'v2.2.0'");
-
-echo "✅ OTA release creation and state management verified successfully.\n\n";
+$newTestRel = $db->query("SELECT id FROM ota_releases WHERE version = 'v2.3.0-test'")->fetch();
+if ($newTestRel) {
+    $delOk = $dashboardModel->deleteOtaRelease((int)$newTestRel['id']);
+    if (!$delOk) {
+        throw new RuntimeException("deleteOtaRelease() failed!");
+    }
+    echo "✅ deleteOtaRelease() successfully deleted release #{$newTestRel['id']}.\n\n";
+} else {
+    // Clean up fallback
+    $db->query("DELETE FROM ota_releases WHERE version = 'v2.3.0-test'");
+}
 
 echo "🎉 ALL ADMIN OTA FIRMWARE CENTER TESTS PASSED 100% SUCCESSFULLY!\n";

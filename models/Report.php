@@ -98,7 +98,7 @@ class Report
      * @param int|null $ownerId
      * @return array
      */
-    public function getSummaryMetrics(string $dateFrom, string $dateTo, string $serviceFilter = 'all', ?int $ownerId = null): array
+    public function getSummaryMetrics(string $dateFrom, string $dateTo, string $serviceFilter = 'all', ?int $ownerId = null, ?int $machineId = null): array
     {
         $params = [
             ':date_from' => $dateFrom,
@@ -112,13 +112,19 @@ class Report
             $params[':owner_id2'] = $ownerId;
         }
 
+        $machineClause = '';
+        if ($machineId !== null && $machineId > 0) {
+            $machineClause = ' AND st.machine_id = :filter_machine_id';
+            $params[':filter_machine_id'] = $machineId;
+        }
+
         $serviceClause = '';
         if ($serviceFilter !== 'all' && ($serviceFilter === 'water' || $serviceFilter === 'soap')) {
             $serviceClause = ' AND s.service_key = :service_key';
             $params[':service_key'] = $serviceFilter;
         }
 
-        // 1. Overall Completed Revenue and Transactions in Period
+        // 1. Overall Completed Revenue and Transactions in Period (using COALESCE to gracefully handle timezone offsets)
         $sql = "SELECT COALESCE(SUM(st.amount), 0) AS total_revenue,
                        COUNT(*) AS total_transactions,
                        COALESCE(SUM(st.runtime_generated_seconds), 0) AS total_purchased_seconds
@@ -126,9 +132,10 @@ class Report
                 INNER JOIN services s ON s.id = st.service_id
                 INNER JOIN machines m ON m.id = st.machine_id
                 WHERE st.status = 'completed'
-                  AND DATE(st.created_at) >= :date_from
-                  AND DATE(st.created_at) <= :date_to
+                  AND DATE(COALESCE(st.completed_at, st.created_at)) >= :date_from
+                  AND DATE(COALESCE(st.completed_at, st.created_at)) <= :date_to
                   {$serviceClause}
+                  {$machineClause}
                   {$ownerClause}";
 
         $row = $this->db->query($sql, $params)->fetch();
@@ -144,6 +151,9 @@ class Report
             $waterParams[':owner_id']  = $ownerId;
             $waterParams[':owner_id2'] = $ownerId;
         }
+        if ($machineId !== null && $machineId > 0) {
+            $waterParams[':filter_machine_id'] = $machineId;
+        }
 
         $waterSql = "SELECT COALESCE(SUM(st.amount), 0) AS revenue,
                             COUNT(*) AS count,
@@ -153,8 +163,9 @@ class Report
                      INNER JOIN machines m ON m.id = st.machine_id
                      WHERE st.status = 'completed'
                        AND s.service_key = 'water'
-                       AND DATE(st.created_at) >= :date_from
-                       AND DATE(st.created_at) <= :date_to
+                       AND DATE(COALESCE(st.completed_at, st.created_at)) >= :date_from
+                       AND DATE(COALESCE(st.completed_at, st.created_at)) <= :date_to
+                       {$machineClause}
                        {$waterOwnerClause}";
         $water = $this->db->query($waterSql, $waterParams)->fetch();
 
@@ -172,8 +183,9 @@ class Report
              INNER JOIN machines m ON m.id = st.machine_id
              WHERE st.status = 'completed'
                AND s.service_key = 'soap'
-               AND DATE(st.created_at) >= :date_from
-               AND DATE(st.created_at) <= :date_to
+               AND DATE(COALESCE(st.completed_at, st.created_at)) >= :date_from
+               AND DATE(COALESCE(st.completed_at, st.created_at)) <= :date_to
+               {$machineClause}
                {$waterOwnerClause}",
             $waterParams
         )->fetch();
@@ -210,6 +222,54 @@ class Report
     }
 
     /**
+     * Retrieve individual financial metrics for each machine in the owner fleet.
+     * Allows owners to see per-machine performance alongside total fleet revenue.
+     *
+     * @param int    $ownerId
+     * @param string $dateFrom
+     * @param string $dateTo
+     * @return array
+     */
+    public function getFleetMachineMetrics(int $ownerId, string $dateFrom, string $dateTo): array
+    {
+        $sql = "SELECT m.id, m.name, m.machine_code, m.machine_type, m.status,
+                       COALESCE(today_stats.period_revenue, 0) AS period_revenue,
+                       COALESCE(today_stats.period_transactions, 0) AS period_transactions,
+                       COALESCE(life_stats.lifetime_revenue, 0) AS lifetime_revenue
+                FROM machines m
+                LEFT JOIN (
+                    SELECT st.machine_id,
+                           COALESCE(SUM(st.amount), 0) AS period_revenue,
+                           COUNT(*) AS period_transactions
+                    FROM service_transactions st
+                    WHERE st.status = 'completed'
+                      AND DATE(COALESCE(st.completed_at, st.created_at)) >= :date_from
+                      AND DATE(COALESCE(st.completed_at, st.created_at)) <= :date_to
+                    GROUP BY st.machine_id
+                ) today_stats ON today_stats.machine_id = m.id
+                LEFT JOIN (
+                    SELECT st.machine_id,
+                           COALESCE(SUM(st.amount), 0) AS lifetime_revenue
+                    FROM service_transactions st
+                    WHERE st.status = 'completed'
+                    GROUP BY st.machine_id
+                ) life_stats ON life_stats.machine_id = m.id
+                WHERE (m.owner_id = :owner_id OR m.id IN (
+                    SELECT m2.id FROM machines m2 
+                    JOIN product_keys pk ON (pk.hardware_serial = m2.machine_code OR pk.hardware_serial = m2.machine_key) 
+                    WHERE pk.owner_id = :owner_id2
+                ))
+                ORDER BY period_revenue DESC, m.name ASC";
+
+        return $this->db->query($sql, [
+            ':date_from' => $dateFrom,
+            ':date_to'   => $dateTo,
+            ':owner_id'  => $ownerId,
+            ':owner_id2' => $ownerId,
+        ])->fetchAll();
+    }
+
+    /**
      * Generate structured time-series data for the Sales Over Time chart.
      *
      * @param string   $dateFrom
@@ -219,7 +279,7 @@ class Report
      * @param int|null $ownerId
      * @return array [labels, water_data, soap_data, total_data, max_value]
      */
-    public function getTimeSeries(string $dateFrom, string $dateTo, string $periodType, string $serviceFilter = 'all', ?int $ownerId = null): array
+    public function getTimeSeries(string $dateFrom, string $dateTo, string $periodType, string $serviceFilter = 'all', ?int $ownerId = null, ?int $machineId = null): array
     {
         $isSingleDay = ($dateFrom === $dateTo);
 
@@ -231,6 +291,12 @@ class Report
             $tsParams[':owner_id2'] = $ownerId;
         }
 
+        $machineClause = '';
+        if ($machineId !== null && $machineId > 0) {
+            $machineClause = ' AND st.machine_id = :filter_machine_id';
+            $tsParams[':filter_machine_id'] = $machineId;
+        }
+
         if ($isSingleDay) {
             // Hourly breakdown (00:00 to 23:00)
             $labels = [];
@@ -239,14 +305,15 @@ class Report
             $totalData = [];
 
             // Query actual completed sales grouped by HOUR
-            $sql = "SELECT HOUR(st.created_at) AS hr,
+            $sql = "SELECT HOUR(COALESCE(st.completed_at, st.created_at)) AS hr,
                            s.service_key,
                            COALESCE(SUM(st.amount), 0) AS revenue
                     FROM service_transactions st
                     INNER JOIN services s ON s.id = st.service_id
                     INNER JOIN machines m ON m.id = st.machine_id
                     WHERE st.status = 'completed'
-                      AND DATE(st.created_at) = :date_from
+                      AND DATE(COALESCE(st.completed_at, st.created_at)) = :date_from
+                      {$machineClause}
                       {$ownerClause}
                     GROUP BY hr, s.service_key";
             $rows = $this->db->query($sql, $tsParams)->fetchAll();
@@ -298,16 +365,20 @@ class Report
         $period = new DatePeriod($start, new DateInterval('P1D'), $end);
 
         $multiParams = array_merge([':date_from' => $dateFrom, ':date_to' => $dateTo], ($ownerId !== null && $ownerId > 0) ? [':owner_id' => $ownerId, ':owner_id2' => $ownerId] : []);
+        if ($machineId !== null && $machineId > 0) {
+            $multiParams[':filter_machine_id'] = $machineId;
+        }
 
-        $sql = "SELECT DATE(st.created_at) AS dt,
+        $sql = "SELECT DATE(COALESCE(st.completed_at, st.created_at)) AS dt,
                        s.service_key,
                        COALESCE(SUM(st.amount), 0) AS revenue
                 FROM service_transactions st
                 INNER JOIN services s ON s.id = st.service_id
                 INNER JOIN machines m ON m.id = st.machine_id
                 WHERE st.status = 'completed'
-                  AND DATE(st.created_at) >= :date_from
-                  AND DATE(st.created_at) <= :date_to
+                  AND DATE(COALESCE(st.completed_at, st.created_at)) >= :date_from
+                  AND DATE(COALESCE(st.completed_at, st.created_at)) <= :date_to
+                  {$machineClause}
                   {$ownerClause}
                 GROUP BY dt, s.service_key";
         $rows = $this->db->query($sql, $multiParams)->fetchAll();
@@ -522,12 +593,21 @@ class Report
      * Compute comprehensive sales analytics, time-series data, and period-over-period
      * comparisons for the interactive Sales Analytics graph.
      *
-     * @param string   $period  'today' | 'week' | 'month' | 'year' | 'all'
+    /**
+     * Compute real-time dynamic sales analytics and trend data for the Sales Overview graph.
+     *
+     * @param string   $period     'today' | 'week' | 'month' | 'year' | 'all'
      * @param int|null $ownerId
+     * @param int|null $machineId  Optional machine filter
+     * @param string   $service    'all' | 'water' | 'soap'
      * @return array
      */
-    public function getSalesAnalytics(string $period = 'today', ?int $ownerId = null): array
-    {
+    public function getSalesAnalytics(
+        string $period = 'today',
+        ?int $ownerId = null,
+        ?int $machineId = null,
+        string $service = 'all'
+    ): array {
         $period = strtolower(trim($period));
         if (!in_array($period, ['today', 'week', 'month', 'year', 'all'], true)) {
             $period = 'today';
@@ -542,6 +622,19 @@ class Report
             $ownerClause = ' AND (m.owner_id = :owner_id OR m.id IN (SELECT m2.id FROM machines m2 JOIN product_keys pk ON (pk.hardware_serial = m2.machine_code OR pk.hardware_serial = m2.machine_key) WHERE pk.owner_id = :owner_id2))';
             $baseParams[':owner_id']  = $ownerId;
             $baseParams[':owner_id2'] = $ownerId;
+        }
+
+        $machineClause = '';
+        if ($machineId !== null && $machineId > 0) {
+            $machineClause = ' AND st.machine_id = :filter_machine_id';
+            $baseParams[':filter_machine_id'] = $machineId;
+        }
+
+        $service = strtolower(trim($service));
+        $serviceClause = '';
+        if ($service === 'water' || $service === 'soap') {
+            $serviceClause = ' AND s.service_key = :filter_service_key';
+            $baseParams[':filter_service_key'] = $service;
         }
 
         $labels = [];
@@ -566,15 +659,15 @@ class Report
             $timeGrouping = 'hourly';
 
             // Query current day hourly data
-            $sql = "SELECT HOUR(st.created_at) AS hr,
+            $sql = "SELECT HOUR(COALESCE(st.completed_at, st.created_at)) AS hr,
                            s.service_key,
                            COALESCE(SUM(st.amount), 0) AS revenue
                     FROM service_transactions st
                     INNER JOIN services s ON s.id = st.service_id
                     INNER JOIN machines m ON m.id = st.machine_id
                     WHERE st.status = 'completed'
-                      AND DATE(st.created_at) = :date_from
-                      {$ownerClause}
+                      AND DATE(COALESCE(st.completed_at, st.created_at)) = :date_from
+                      {$ownerClause} {$machineClause} {$serviceClause}
                     GROUP BY hr, s.service_key";
             $rows = $this->db->query($sql, array_merge($baseParams, [':date_from' => $dateFrom]))->fetchAll();
 
@@ -589,6 +682,11 @@ class Report
                 $labels[] = date('g A', strtotime("{$h}:00:00"));
                 $w = $hourMap[$h]['water'] ?? 0.0;
                 $s = $hourMap[$h]['soap'] ?? 0.0;
+                if ($service === 'water') {
+                    $s = 0.0;
+                } elseif ($service === 'soap') {
+                    $w = 0.0;
+                }
                 $waterData[] = round($w, 2);
                 $soapData[]  = round($s, 2);
                 $totalData[] = round($w + $s, 2);
@@ -605,16 +703,16 @@ class Report
             $prevPeriodLabel = "vs last week";
             $timeGrouping = 'daily';
 
-            $sql = "SELECT DATE(st.created_at) AS dt,
+            $sql = "SELECT DATE(COALESCE(st.completed_at, st.created_at)) AS dt,
                            s.service_key,
                            COALESCE(SUM(st.amount), 0) AS revenue
                     FROM service_transactions st
                     INNER JOIN services s ON s.id = st.service_id
                     INNER JOIN machines m ON m.id = st.machine_id
                     WHERE st.status = 'completed'
-                      AND DATE(st.created_at) >= :date_from
-                      AND DATE(st.created_at) <= :date_to
-                      {$ownerClause}
+                      AND DATE(COALESCE(st.completed_at, st.created_at)) >= :date_from
+                      AND DATE(COALESCE(st.completed_at, st.created_at)) <= :date_to
+                      {$ownerClause} {$machineClause} {$serviceClause}
                     GROUP BY dt, s.service_key";
             $rows = $this->db->query($sql, array_merge($baseParams, [':date_from' => $dateFrom, ':date_to' => $dateTo]))->fetchAll();
 
@@ -631,6 +729,11 @@ class Report
                 $labels[] = date('D (M j)', strtotime($curDate));
                 $w = $dayMap[$curDate]['water'] ?? 0.0;
                 $s = $dayMap[$curDate]['soap'] ?? 0.0;
+                if ($service === 'water') {
+                    $s = 0.0;
+                } elseif ($service === 'soap') {
+                    $w = 0.0;
+                }
                 $waterData[] = round($w, 2);
                 $soapData[]  = round($s, 2);
                 $totalData[] = round($w + $s, 2);
@@ -647,16 +750,16 @@ class Report
             $prevPeriodLabel = "vs last month";
             $timeGrouping = 'daily';
 
-            $sql = "SELECT DATE(st.created_at) AS dt,
+            $sql = "SELECT DATE(COALESCE(st.completed_at, st.created_at)) AS dt,
                            s.service_key,
                            COALESCE(SUM(st.amount), 0) AS revenue
                     FROM service_transactions st
                     INNER JOIN services s ON s.id = st.service_id
                     INNER JOIN machines m ON m.id = st.machine_id
                     WHERE st.status = 'completed'
-                      AND DATE(st.created_at) >= :date_from
-                      AND DATE(st.created_at) <= :date_to
-                      {$ownerClause}
+                      AND DATE(COALESCE(st.completed_at, st.created_at)) >= :date_from
+                      AND DATE(COALESCE(st.completed_at, st.created_at)) <= :date_to
+                      {$ownerClause} {$machineClause} {$serviceClause}
                     GROUP BY dt, s.service_key";
             $rows = $this->db->query($sql, array_merge($baseParams, [':date_from' => $dateFrom, ':date_to' => $dateTo]))->fetchAll();
 
@@ -673,6 +776,11 @@ class Report
                 $labels[] = date('M j', strtotime($curDate));
                 $w = $dayMap[$curDate]['water'] ?? 0.0;
                 $s = $dayMap[$curDate]['soap'] ?? 0.0;
+                if ($service === 'water') {
+                    $s = 0.0;
+                } elseif ($service === 'soap') {
+                    $w = 0.0;
+                }
                 $waterData[] = round($w, 2);
                 $soapData[]  = round($s, 2);
                 $totalData[] = round($w + $s, 2);
@@ -689,15 +797,15 @@ class Report
             $prevPeriodLabel = "vs last year";
             $timeGrouping = 'monthly';
 
-            $sql = "SELECT MONTH(st.created_at) AS mo,
+            $sql = "SELECT MONTH(COALESCE(st.completed_at, st.created_at)) AS mo,
                            s.service_key,
                            COALESCE(SUM(st.amount), 0) AS revenue
                     FROM service_transactions st
                     INNER JOIN services s ON s.id = st.service_id
                     INNER JOIN machines m ON m.id = st.machine_id
                     WHERE st.status = 'completed'
-                      AND YEAR(st.created_at) = YEAR(CURDATE())
-                      {$ownerClause}
+                      AND YEAR(COALESCE(st.completed_at, st.created_at)) = YEAR(CURDATE())
+                      {$ownerClause} {$machineClause} {$serviceClause}
                     GROUP BY mo, s.service_key";
             $rows = $this->db->query($sql, $baseParams)->fetchAll();
 
@@ -712,6 +820,11 @@ class Report
                 $labels[] = date('M', mktime(0, 0, 0, $m, 1));
                 $w = $monthMap[$m]['water'] ?? 0.0;
                 $s = $monthMap[$m]['soap'] ?? 0.0;
+                if ($service === 'water') {
+                    $s = 0.0;
+                } elseif ($service === 'soap') {
+                    $w = 0.0;
+                }
                 $waterData[] = round($w, 2);
                 $soapData[]  = round($s, 2);
                 $totalData[] = round($w + $s, 2);
@@ -721,7 +834,8 @@ class Report
             $minSql = "SELECT MIN(st.created_at) AS min_dt, MAX(st.created_at) AS max_dt
                        FROM service_transactions st
                        INNER JOIN machines m ON m.id = st.machine_id
-                       WHERE st.status = 'completed' {$ownerClause}";
+                       INNER JOIN services s ON s.id = st.service_id
+                       WHERE st.status = 'completed' {$ownerClause} {$machineClause} {$serviceClause}";
             $minRow = $this->db->query($minSql, $baseParams)->fetch();
             $earliest = !empty($minRow['min_dt']) ? new DateTime($minRow['min_dt']) : new DateTime('-3 months');
             $latest   = !empty($minRow['max_dt']) ? new DateTime($minRow['max_dt']) : new DateTime('now');
@@ -745,7 +859,7 @@ class Report
                         FROM service_transactions st
                         INNER JOIN services s ON s.id = st.service_id
                         INNER JOIN machines m ON m.id = st.machine_id
-                        WHERE st.status = 'completed' {$ownerClause}
+                        WHERE st.status = 'completed' {$ownerClause} {$machineClause} {$serviceClause}
                         GROUP BY dt, s.service_key";
                 $rows = $this->db->query($sql, $baseParams)->fetchAll();
                 $dayMap = [];
@@ -758,6 +872,11 @@ class Report
                     $labels[] = $d->format('M j');
                     $w = $dayMap[$dateStr]['water'] ?? 0.0;
                     $s = $dayMap[$dateStr]['soap'] ?? 0.0;
+                    if ($service === 'water') {
+                        $s = 0.0;
+                    } elseif ($service === 'soap') {
+                        $w = 0.0;
+                    }
                     $waterData[] = round($w, 2);
                     $soapData[]  = round($s, 2);
                     $totalData[] = round($w + $s, 2);
@@ -772,7 +891,7 @@ class Report
                         FROM service_transactions st
                         INNER JOIN services s ON s.id = st.service_id
                         INNER JOIN machines m ON m.id = st.machine_id
-                        WHERE st.status = 'completed' {$ownerClause}
+                        WHERE st.status = 'completed' {$ownerClause} {$machineClause} {$serviceClause}
                         GROUP BY ym, s.service_key";
                 $rows = $this->db->query($sql, $baseParams)->fetchAll();
                 $ymMap = [];
@@ -785,6 +904,11 @@ class Report
                     $labels[] = $d->format('M Y');
                     $w = $ymMap[$ymStr]['water'] ?? 0.0;
                     $s = $ymMap[$ymStr]['soap'] ?? 0.0;
+                    if ($service === 'water') {
+                        $s = 0.0;
+                    } elseif ($service === 'soap') {
+                        $w = 0.0;
+                    }
                     $waterData[] = round($w, 2);
                     $soapData[]  = round($s, 2);
                     $totalData[] = round($w + $s, 2);
@@ -793,15 +917,27 @@ class Report
         }
 
         // Current Period Totals
-        $currStatsSql = "SELECT COALESCE(SUM(st.amount), 0) AS total_rev,
-                                COUNT(*) AS total_count
-                         FROM service_transactions st
-                         INNER JOIN machines m ON m.id = st.machine_id
-                         WHERE st.status = 'completed'
-                           AND DATE(st.created_at) >= :d_from
-                           AND DATE(st.created_at) <= :d_to
-                           {$ownerClause}";
-        $currRow = $this->db->query($currStatsSql, array_merge($baseParams, [':d_from' => $dateFrom, ':d_to' => $dateTo]))->fetch();
+        if ($period === 'all') {
+            $currStatsSql = "SELECT COALESCE(SUM(st.amount), 0) AS total_rev,
+                                    COUNT(*) AS total_count
+                             FROM service_transactions st
+                             INNER JOIN machines m ON m.id = st.machine_id
+                             INNER JOIN services s ON s.id = st.service_id
+                             WHERE st.status = 'completed'
+                               {$ownerClause} {$machineClause} {$serviceClause}";
+            $currRow = $this->db->query($currStatsSql, $baseParams)->fetch();
+        } else {
+            $currStatsSql = "SELECT COALESCE(SUM(st.amount), 0) AS total_rev,
+                                    COUNT(*) AS total_count
+                             FROM service_transactions st
+                             INNER JOIN machines m ON m.id = st.machine_id
+                             INNER JOIN services s ON s.id = st.service_id
+                             WHERE st.status = 'completed'
+                               AND DATE(COALESCE(st.completed_at, st.created_at)) >= :d_from
+                               AND DATE(COALESCE(st.completed_at, st.created_at)) <= :d_to
+                               {$ownerClause} {$machineClause} {$serviceClause}";
+            $currRow = $this->db->query($currStatsSql, array_merge($baseParams, [':d_from' => $dateFrom, ':d_to' => $dateTo]))->fetch();
+        }
         $currRevenue = (float) ($currRow['total_rev'] ?? 0);
         $currCount   = (int) ($currRow['total_count'] ?? 0);
         $currAvg     = ($currCount > 0) ? round($currRevenue / $currCount, 2) : 0.0;
@@ -813,6 +949,41 @@ class Report
             $prevRow = $this->db->query($currStatsSql, array_merge($baseParams, [':d_from' => $prevDateFrom, ':d_to' => $prevDateTo]))->fetch();
             $prevRevenue = (float) ($prevRow['total_rev'] ?? 0);
             $prevCount   = (int) ($prevRow['total_count'] ?? 0);
+        }
+
+        // Service Breakdown (Water & Soap)
+        $waterParams = array_merge($baseParams);
+        $soapParams  = array_merge($baseParams);
+        $dateClause  = '';
+        if ($period !== 'all') {
+            $dateClause = ' AND DATE(st.created_at) >= :bd_from AND DATE(st.created_at) <= :bd_to';
+            $waterParams[':bd_from'] = $dateFrom;
+            $waterParams[':bd_to']   = $dateTo;
+            $soapParams[':bd_from']  = $dateFrom;
+            $soapParams[':bd_to']    = $dateTo;
+        }
+
+        $waterRow = ['rev' => 0.0, 'cnt' => 0];
+        $soapRow  = ['rev' => 0.0, 'cnt' => 0];
+
+        if ($service === 'all' || $service === 'water') {
+            $wSql = "SELECT COALESCE(SUM(st.amount), 0) AS rev, COUNT(*) AS cnt
+                     FROM service_transactions st
+                     INNER JOIN machines m ON m.id = st.machine_id
+                     INNER JOIN services s ON s.id = st.service_id
+                     WHERE st.status = 'completed' AND s.service_key = 'water'
+                       {$dateClause} {$ownerClause} {$machineClause}";
+            $waterRow = $this->db->query($wSql, $waterParams)->fetch() ?: ['rev' => 0.0, 'cnt' => 0];
+        }
+
+        if ($service === 'all' || $service === 'soap') {
+            $sSql = "SELECT COALESCE(SUM(st.amount), 0) AS rev, COUNT(*) AS cnt
+                     FROM service_transactions st
+                     INNER JOIN machines m ON m.id = st.machine_id
+                     INNER JOIN services s ON s.id = st.service_id
+                     WHERE st.status = 'completed' AND s.service_key = 'soap'
+                       {$dateClause} {$ownerClause} {$machineClause}";
+            $soapRow = $this->db->query($sSql, $soapParams)->fetch() ?: ['rev' => 0.0, 'cnt' => 0];
         }
 
         // Percentage Change Calculation
@@ -837,6 +1008,10 @@ class Report
             'period_label'         => $periodLabel,
             'prev_period_label'    => $prevPeriodLabel,
             'time_grouping'        => $timeGrouping,
+            'machine_id'           => $machineId,
+            'service'              => $service,
+            'date_from'            => $dateFrom,
+            'date_to'              => $dateTo,
             'metrics'              => [
                 'total_revenue'             => $currRevenue,
                 'total_revenue_formatted'   => '₱' . number_format($currRevenue, 2),
@@ -848,6 +1023,12 @@ class Report
                 'pct_change'                => $pctChange,
                 'pct_change_formatted'      => $pctFormatted,
                 'pct_direction'             => $pctDirection,
+            ],
+            'breakdown'            => [
+                'water_revenue'      => (float)($waterRow['rev'] ?? 0),
+                'water_transactions' => (int)($waterRow['cnt'] ?? 0),
+                'soap_revenue'       => (float)($soapRow['rev'] ?? 0),
+                'soap_transactions'  => (int)($soapRow['cnt'] ?? 0),
             ],
             'chart'                => [
                 'labels'     => $labels,
@@ -868,4 +1049,202 @@ class Report
             ]
         ];
     }
+
+    /**
+     * Export complete Sales Performance Analytics Report to Excel-compatible CSV.
+     *
+     * @param string   $period    'today' | 'week' | 'month' | 'year' | 'all'
+     * @param int|null $machineId
+     * @param string   $service   'all' | 'water' | 'soap'
+     * @param int|null $ownerId
+     */
+    public function exportSalesPerformanceCsv(
+        string $period = 'today',
+        ?int $machineId = null,
+        string $service = 'all',
+        ?int $ownerId = null
+    ): void {
+        $analytics = $this->getSalesAnalytics($period, $ownerId, $machineId, $service);
+
+        $machineName = 'All Machines';
+        if ($machineId !== null && $machineId > 0) {
+            $mRow = $this->db->query("SELECT name, machine_code FROM machines WHERE id = :id", [':id' => $machineId])->fetch();
+            if ($mRow) {
+                $machineName = ($mRow['name'] ?: 'Machine') . ' (' . ($mRow['machine_code'] ?: 'Kit') . ')';
+            }
+        }
+
+        $serviceLabel = match ($service) {
+            'water' => 'Water Service',
+            'soap'  => 'Soap Service',
+            default => 'All Services',
+        };
+
+        $slug = preg_replace('/[^a-z0-9_-]/i', '_', $period);
+        $filename = 'vendolink-sales-performance-' . $slug . '-' . date('Ymd-His') . '.csv';
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        if (!headers_sent()) {
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+            header('Pragma: no-cache');
+            header('Expires: 0');
+        }
+
+        $output = fopen('php://output', 'w');
+        // UTF-8 BOM
+        fprintf($output, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+        // 1. Report Header & Metadata
+        fputcsv($output, ['VendoLink — Sales Performance Analytics Report']);
+        fputcsv($output, ['Report Period', $analytics['period_label']]);
+        fputcsv($output, ['Machine Filter', sanitize_excel_cell($machineName)]);
+        fputcsv($output, ['Service Filter', $serviceLabel]);
+        fputcsv($output, ['Generated Date & Time', date('M j, Y, g:i A')]);
+        fputcsv($output, []); // blank line
+
+        // 2. Metrics Summary Block
+        fputcsv($output, ['ANALYTICS SUMMARY']);
+        fputcsv($output, ['Total Revenue', '₱' . number_format($analytics['metrics']['total_revenue'], 2, '.', '')]);
+        fputcsv($output, ['Completed Transactions', (string)$analytics['metrics']['total_transactions']]);
+        fputcsv($output, ['Average Ticket', '₱' . number_format($analytics['metrics']['avg_transaction'], 2, '.', '')]);
+        fputcsv($output, ['Water Revenue', '₱' . number_format($analytics['breakdown']['water_revenue'], 2, '.', '')]);
+        fputcsv($output, ['Water Completed Transactions', (string)$analytics['breakdown']['water_transactions']]);
+        fputcsv($output, ['Soap Revenue', '₱' . number_format($analytics['breakdown']['soap_revenue'], 2, '.', '')]);
+        fputcsv($output, ['Soap Completed Transactions', (string)$analytics['breakdown']['soap_transactions']]);
+        fputcsv($output, []); // blank line
+
+        // 3. Time-Grouped Sales Trend Data
+        fputcsv($output, ['TIME-GROUPED TREND DATA (' . strtoupper($analytics['time_grouping']) . ')']);
+        fputcsv($output, ['Time Interval', 'Water Sales (₱)', 'Soap Sales (₱)', 'Total Revenue (₱)']);
+
+        $labels = $analytics['chart']['labels'] ?? [];
+        $wData  = $analytics['chart']['water_data'] ?? [];
+        $sData  = $analytics['chart']['soap_data'] ?? [];
+        $tData  = $analytics['chart']['total_data'] ?? [];
+
+        foreach ($labels as $idx => $lbl) {
+            fputcsv($output, [
+                $lbl,
+                '₱' . number_format((float)($wData[$idx] ?? 0), 2, '.', ''),
+                '₱' . number_format((float)($sData[$idx] ?? 0), 2, '.', ''),
+                '₱' . number_format((float)($tData[$idx] ?? 0), 2, '.', ''),
+            ]);
+        }
+        fputcsv($output, []); // blank line
+
+        // 4. Machine Breakdown
+        $ownerClause = '';
+        $mParams = [];
+        if ($ownerId !== null && $ownerId > 0) {
+            $ownerClause = ' AND (m.owner_id = :owner_id OR m.id IN (SELECT m2.id FROM machines m2 JOIN product_keys pk ON (pk.hardware_serial = m2.machine_code OR pk.hardware_serial = m2.machine_key) WHERE pk.owner_id = :owner_id2))';
+            $mParams[':owner_id']  = $ownerId;
+            $mParams[':owner_id2'] = $ownerId;
+        }
+
+        $dateClause = '';
+        if ($period !== 'all') {
+            $dateClause = ' AND DATE(st.created_at) >= :m_from AND DATE(st.created_at) <= :m_to';
+            $mParams[':m_from'] = $analytics['date_from'];
+            $mParams[':m_to']   = $analytics['date_to'];
+        }
+
+        $machineClause = '';
+        if ($machineId !== null && $machineId > 0) {
+            $machineClause = ' AND st.machine_id = :m_mid';
+            $mParams[':m_mid'] = $machineId;
+        }
+
+        $serviceClause = '';
+        if ($service === 'water' || $service === 'soap') {
+            $serviceClause = ' AND s.service_key = :m_svc';
+            $mParams[':m_svc'] = $service;
+        }
+
+        $mBreakdownSql = "SELECT m.id, m.name, m.machine_code,
+                                 COALESCE(SUM(CASE WHEN s.service_key = 'water' THEN st.amount ELSE 0 END), 0) AS water_rev,
+                                 COALESCE(SUM(CASE WHEN s.service_key = 'soap' THEN st.amount ELSE 0 END), 0) AS soap_rev,
+                                 COALESCE(SUM(st.amount), 0) AS total_rev,
+                                 COUNT(*) AS total_count
+                          FROM service_transactions st
+                          INNER JOIN machines m ON m.id = st.machine_id
+                          INNER JOIN services s ON s.id = st.service_id
+                          WHERE st.status = 'completed'
+                            {$dateClause} {$ownerClause} {$machineClause} {$serviceClause}
+                          GROUP BY m.id, m.name, m.machine_code
+                          ORDER BY m.name ASC";
+        $mRows = $this->db->query($mBreakdownSql, $mParams)->fetchAll();
+
+        fputcsv($output, ['MACHINE BREAKDOWN']);
+        fputcsv($output, ['Machine Name', 'Machine Code', 'Water Revenue', 'Soap Revenue', 'Total Revenue', 'Completed Transactions']);
+        if (empty($mRows)) {
+            fputcsv($output, ['No machine data recorded for this period.']);
+        } else {
+            foreach ($mRows as $mr) {
+                fputcsv($output, [
+                    sanitize_excel_cell($mr['name'] ?: 'Machine'),
+                    sanitize_excel_cell($mr['machine_code'] ?: 'N/A'),
+                    '₱' . number_format((float)$mr['water_rev'], 2, '.', ''),
+                    '₱' . number_format((float)$mr['soap_rev'], 2, '.', ''),
+                    '₱' . number_format((float)$mr['total_rev'], 2, '.', ''),
+                    (string)$mr['total_count'],
+                ]);
+            }
+        }
+        fputcsv($output, []); // blank line
+
+        // 5. All Matching Completed Transactions
+        fputcsv($output, ['COMPLETED TRANSACTIONS IN PERIOD']);
+        $txSql = "SELECT st.id, st.created_at, st.amount, st.runtime_generated_seconds,
+                         s.name AS service_name, s.service_key,
+                         m.name AS machine_name, m.machine_code
+                  FROM service_transactions st
+                  INNER JOIN machines m ON m.id = st.machine_id
+                  INNER JOIN services s ON s.id = st.service_id
+                  WHERE st.status = 'completed'
+                    {$dateClause} {$ownerClause} {$machineClause} {$serviceClause}
+                  ORDER BY st.created_at DESC, st.id DESC";
+        $txRows = $this->db->query($txSql, $mParams)->fetchAll();
+
+        if (empty($txRows)) {
+            fputcsv($output, ['No completed sales found for the selected period and filters.']);
+        } else {
+            fputcsv($output, [
+                'Transaction ID',
+                'Date & Time',
+                'Machine',
+                'Service',
+                'Amount',
+                'Purchased Time',
+                'Status'
+            ]);
+
+            foreach ($txRows as $tx) {
+                $serviceDisplayName = match ($tx['service_key'] ?? '') {
+                    'water' => 'Water',
+                    'soap'  => 'Soap',
+                    default => preg_replace('/\s+Service$/i', '', $tx['service_name'] ?: 'Service'),
+                };
+                $machineDisplayName = preg_replace('/^VendoLink\s+/i', '', $tx['machine_name'] ?: 'Machine 01');
+
+                fputcsv($output, [
+                    '#' . str_pad((string)$tx['id'], 5, '0', STR_PAD_LEFT),
+                    $tx['created_at'],
+                    sanitize_excel_cell($machineDisplayName),
+                    sanitize_excel_cell($serviceDisplayName),
+                    '₱' . number_format((float)$tx['amount'], 2, '.', ''),
+                    Transaction::formatDuration((int)$tx['runtime_generated_seconds']),
+                    'Completed',
+                ]);
+            }
+        }
+
+        fclose($output);
+        exit;
+    }
 }
+

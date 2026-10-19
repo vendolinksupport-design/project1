@@ -87,6 +87,19 @@ assert(str_contains($htmlOutput, 'Platform Dashboard'), "HTML must contain page 
 assert(str_contains($htmlOutput, 'Total Customers'), "HTML must contain Total Customers summary card");
 assert(str_contains($htmlOutput, 'Online Machines'), "HTML must contain Online Machines summary card");
 assert(str_contains($htmlOutput, 'Recent Platform Activity'), "HTML must contain Recent Platform Activity section");
+assert(str_contains($htmlOutput, 'preview-machine-card'), "HTML must contain preview-machine-card styling");
+assert(str_contains($htmlOutput, 'preview-status-pill'), "HTML must contain preview-status-pill badge");
+assert(str_contains($htmlOutput, 'preview-badge-code'), "HTML must contain preview-badge-code styling");
+assert(str_contains($htmlOutput, 'preview-activity-item'), "HTML must contain preview-activity-item styling");
+assert(str_contains($htmlOutput, 'preview-header-link'), "HTML must contain preview-header-link");
+assert(!str_contains($htmlOutput, 'fleet'), "HTML must not contain the word 'fleet'");
+assert(!str_contains($htmlOutput, 'or missing heartbeats'), "HTML must not contain 'or missing heartbeats'");
+assert(str_contains($htmlOutput, 'admin/customers/index.php'), "KPI card 1 must link to customers panel");
+assert(str_contains($htmlOutput, 'admin/machines/index.php'), "KPI card 2 must link to machines panel");
+assert(str_contains($htmlOutput, 'admin/licenses/index.php'), "KPI card 3 must link to licenses panel");
+assert(str_contains($htmlOutput, 'admin/ota/index.php'), "KPI card 4 must link to ota panel");
+assert(str_contains($htmlOutput, '••••'), "Product key must be partially masked with ••••");
 echo "✅ Admin Dashboard view rendered cleanly without warnings or errors.\n";
 
-echo "\n🎉 ALL 16 VENDOLINK ADMIN DASHBOARD (PHASE 2) CHECKS PASSED 100% SUCCESSFULLY!\n";
+echo "\n🎉 ALL 25 VENDOLINK ADMIN DASHBOARD (PHASE 2) CHECKS PASSED 100% SUCCESSFULLY!\n";
+

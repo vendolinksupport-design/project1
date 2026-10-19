@@ -12,7 +12,7 @@
  * Home, Phone Hotspot, School XAMPP, and Online hosting.
  *
  * @package VendoLink IoT
- * @version 1.6.0
+ * @version 3.0.0
  */
 
 #ifndef VENDOLINK_CONFIG_H
@@ -83,16 +83,29 @@ const int COIN_RELAY_POWER_ON  = HIGH; // HIGH = Relay De-energized → NC Close
 const int COIN_RELAY_POWER_OFF = LOW;  // LOW  = Relay Energized (CLICK) → NC Opens → 12V CUT OFF
 
 // ============================================================
-// Machine Identity
+// Universal Machine Identity & Deployment Configuration
 // ============================================================
-const char* MACHINE_KEY       = "machine_01";
-const char* MACHINE_CODE      = "MACHINE-01";
-const char* FIRMWARE_VERSION  = "2.8.1";
+const char* FIRMWARE_VERSION          = "3.3.0";
+const char* DEFAULT_VENDOLINK_SERVER   = "https://vendolink.online/api";
+const char* DEFAULT_ENROLLMENT_SECRET = "vl_enroll_sec_7f9c2a1e8d3b4f6a5c0e";
+const char* DEFAULT_MACHINE_KEY        = "machine_01";
+const char* DEFAULT_MACHINE_CODE       = "MACHINE-01";
+const char* INSTALLER_PORTAL_PIN       = "9482"; // PIN for protected /installer configuration mode
+
+// Wi-Fi Captive Portal SoftAP Setup
+const char* AP_SSID_PREFIX            = "VendoLink-Setup-";
+const char* AP_DEFAULT_PASS           = "vendolink123";
+
+// Factory / Workshop Provisioning Wi-Fi (Phone Hotspot)
+// Used automatically on unconfigured boards to self-enroll with vendolink.online
+const char* FACTORY_WIFI_SSID         = "VendoLink-Factory";
+const char* FACTORY_WIFI_PASS         = "factory12345";
 
 // ============================================================
 // Telemetry Timing Settings
 // ============================================================
 const unsigned long HEARTBEAT_INTERVAL_MS = 15000;
 const unsigned long WIFI_TIMEOUT_MS        = 10000;
+const unsigned long AP_PORTAL_TIMEOUT_MS   = 180000; // 3 minutes captive portal window before retry
 
 #endif // VENDOLINK_CONFIG_H

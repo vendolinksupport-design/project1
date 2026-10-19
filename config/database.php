@@ -49,6 +49,12 @@ class Database
 
         try {
             $this->pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+            // Synchronize MySQL session time zone with Philippine Standard Time (UTC+8 / Asia/Manila)
+            try {
+                $this->pdo->exec("SET time_zone = '+08:00'");
+            } catch (PDOException $tzEx) {
+                // Silently ignore if restricted on strict hosted environments
+            }
         } catch (PDOException $e) {
             // Log the real error; show a safe message to the user
             error_log('[VendoLink][DB] Connection failed: ' . $e->getMessage());
@@ -80,6 +86,8 @@ class Database
         return $this->pdo;
     }
 
+    private string $cachedLastInsertId = '0';
+
     /**
      * Prepare and execute a query with bound parameters.
      *
@@ -91,6 +99,14 @@ class Database
     {
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
+        try {
+            $lid = $this->pdo->lastInsertId();
+            if ($lid !== '0' && $lid !== '') {
+                $this->cachedLastInsertId = $lid;
+            }
+        } catch (Throwable) {
+            // ignore
+        }
         return $stmt;
     }
 
@@ -99,7 +115,13 @@ class Database
      */
     public function lastInsertId(): string
     {
-        return $this->pdo->lastInsertId();
+        $lid = '0';
+        try {
+            $lid = $this->pdo->lastInsertId();
+        } catch (Throwable) {
+            // ignore
+        }
+        return ($lid !== '0' && $lid !== '') ? $lid : $this->cachedLastInsertId;
     }
 
     /**

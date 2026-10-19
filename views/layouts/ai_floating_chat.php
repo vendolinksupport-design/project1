@@ -174,19 +174,22 @@ body.chat-open {
 
 #vendoAiFloatBtn {
     position: fixed;
-    bottom: 24px;
-    right: 24px;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    right: calc(24px + env(safe-area-inset-right, 0px));
     width: 54px;
     height: 54px;
     border-radius: 50%;
     background: linear-gradient(135deg, #38bdf8, #0eac5e);
     border: 2px solid rgba(255,255,255,0.4);
-    display: flex;
+    display: none !important; /* Secret stealth mode: hidden from public overlay */
     align-items: center;
     justify-content: center;
     cursor: pointer;
     z-index: 9999;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+#vendoAiFloatBtn.show-btn {
+    display: flex !important;
 }
 #vendoAiFloatBtn:hover {
     transform: scale(1.08);
@@ -207,8 +210,8 @@ body.chat-open {
 
 .vendo-ai-chat-box {
     position: fixed;
-    bottom: 90px;
-    right: 24px;
+    bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+    right: calc(24px + env(safe-area-inset-right, 0px));
     width: 410px;
     max-width: calc(100vw - 48px);
     height: 480px;
@@ -226,18 +229,18 @@ body.chat-open {
 
 @media (max-width: 575.98px) {
     #vendoAiFloatBtn {
-        bottom: 16px;
-        right: 16px;
+        bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+        right: calc(16px + env(safe-area-inset-right, 0px));
         width: 48px;
         height: 48px;
     }
     .vendo-ai-chat-box {
-        bottom: 74px;
-        right: 16px;
+        bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+        right: calc(16px + env(safe-area-inset-right, 0px));
         width: calc(100vw - 32px);
         max-width: 380px;
         height: 460px;
-        max-height: calc(100vh - 90px);
+        max-height: calc(100vh - 90px - env(safe-area-inset-bottom, 0px));
         border-radius: 14px;
     }
 }
@@ -357,6 +360,39 @@ function onAiScrollLock() {
     }
 }
 
+function toggleVendoAiChat() {
+    const chatBox = document.getElementById('vendoAiChatBox');
+    if (!chatBox) return;
+    if (chatBox.classList.contains('d-none')) {
+        openVendoAiChat();
+    } else {
+        closeVendoAiChat();
+    }
+}
+
+// 🔐 Secret Trigger 1: Global Keyboard Shortcuts
+// - Ctrl + Shift + A (or Alt + A): Toggles VendoAI Chat popup open/closed
+// - Ctrl + Shift + V: Toggles Floating Circular Button visibility
+document.addEventListener('keydown', function (e) {
+    if ((e.altKey && (e.key === 'a' || e.key === 'A')) || 
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A'))) {
+        e.preventDefault();
+        toggleVendoAiChat();
+        return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+        e.preventDefault();
+        const floatBtn = document.getElementById('vendoAiFloatBtn');
+        if (floatBtn) {
+            floatBtn.classList.toggle('show-btn');
+        }
+        return;
+    }
+    if (e.key === 'Escape' && isVendoAiChatOpen) {
+        closeVendoAiChat();
+    }
+});
+
 document.addEventListener('DOMContentLoaded', function () {
     const floatBtn = document.getElementById('vendoAiFloatBtn');
     const chatBox  = document.getElementById('vendoAiChatBox');
@@ -364,11 +400,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (floatBtn && chatBox) {
         floatBtn.addEventListener('click', function () {
-            if (chatBox.classList.contains('d-none')) {
-                openVendoAiChat();
-            } else {
-                closeVendoAiChat();
-            }
+            toggleVendoAiChat();
         });
     }
 
@@ -377,7 +409,41 @@ document.addEventListener('DOMContentLoaded', function () {
             closeVendoAiChat();
         });
     }
+
+    // 🔐 Secret Trigger 2: Triple-Click Logo / Brand (Mobile or Desktop)
+    let brandTapCount = 0;
+    let brandTapTimer = null;
+    const brandSelectors = '.sidebar-logo, .sidebar-logo-brand, .sidebar-logo-text, .navbar-brand, .topnav-pagetitle-text, .brand-logo, #adminSecretVersion';
+    const brandElements = document.querySelectorAll(brandSelectors);
+
+    brandElements.forEach(function (el) {
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', function (e) {
+            brandTapCount++;
+            clearTimeout(brandTapTimer);
+            brandTapTimer = setTimeout(function () {
+                brandTapCount = 0;
+            }, 800);
+
+            if (brandTapCount >= 3) {
+                e.preventDefault();
+                brandTapCount = 0;
+                toggleVendoAiChat();
+            }
+        });
+    });
+
+    // 🔐 Secret Trigger 3: URL Parameter (?ai=1 or #vendoai)
+    if (window.location.search.includes('ai=1') || window.location.hash === '#vendoai') {
+        setTimeout(openVendoAiChat, 300);
+    }
 });
+
+// Expose globally for console or external invocation
+window.toggleVendoAI = toggleVendoAiChat;
+window.openVendoAI   = openVendoAiChat;
+window.closeVendoAI  = closeVendoAiChat;
+
 
 function openVendoAiChat() {
     const chatBox = document.getElementById('vendoAiChatBox');

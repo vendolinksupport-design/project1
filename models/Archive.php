@@ -78,6 +78,22 @@ class Archive
             $params[':service_key'] = $filters['service'];
         }
 
+        // Status filter:
+        // 'completed'   => st.status = 'completed'
+        // 'incomplete'  => st.status IN ('incomplete', 'interrupted')
+        // 'unsuccessful'=> st.status IN ('cancelled', 'failed')
+        if (!empty($filters['status']) && $filters['status'] !== 'all') {
+            $stFilter = strtolower(trim($filters['status']));
+            if ($stFilter === 'incomplete') {
+                $where[] = "st.status IN ('incomplete', 'interrupted')";
+            } elseif ($stFilter === 'unsuccessful') {
+                $where[] = "st.status IN ('cancelled', 'failed')";
+            } else {
+                $where[] = 'st.status = :status';
+                $params[':status'] = $stFilter;
+            }
+        }
+
         // Date range
         if (!empty($filters['date_from'])) {
             $where[] = 'DATE(st.created_at) >= :date_from';
@@ -235,13 +251,20 @@ class Archive
     /**
      * Retrieve paginated and filtered configuration history.
      *
-     * @param array    $filters [search, service, date_from, date_to]
-     * @param int      $page
-     * @param int      $perPage
-     * @param int|null $ownerId
+     * @param array       $filters [search, service, date_from, date_to]
+     * @param int         $page
+     * @param int         $perPage
+     * @param int|null    $ownerId
+     * @param string|null $viewerRole
      * @return array
      */
-    public function getConfigurationHistory(array $filters = [], int $page = 1, int $perPage = 15, ?int $ownerId = null): array
+    public function getConfigurationHistory(
+        array $filters = [],
+        int $page = 1,
+        int $perPage = 15,
+        ?int $ownerId = null,
+        ?string $viewerRole = null
+    ): array
     {
         $perPage = max(1, min(100, $perPage));
         $page = max(1, $page);
@@ -249,8 +272,38 @@ class Archive
         $where = ['1=1'];
         $params = [];
 
-        // Owner isolation filter
-        if ($ownerId !== null && $ownerId > 0) {
+        // Determine if the viewer has an internal administrative role (Admin or Support)
+        $isInternal = false;
+        if ($viewerRole !== null && $viewerRole !== '') {
+            $isInternal = in_array(strtolower($viewerRole), [
+                ROLE_ADMIN,
+                ROLE_SUPPORT,
+                'administrator',
+                'support',
+                'vendolink_support',
+                'admin'
+            ], true);
+        } elseif (function_exists('is_logged_in') && is_logged_in() && function_exists('is_internal_user')) {
+            $isInternal = is_internal_user();
+        }
+
+        // Owner-scoped view: Owner is viewing their machine configuration changes
+        $isOwnerView = !$isInternal && ($ownerId !== null && $ownerId > 0);
+
+        if ($isOwnerView) {
+            // Scope to machine owned by or registered to this owner
+            $where[] = '(m.owner_id = :owner_id OR m.id IN (SELECT m2.id FROM machines m2 JOIN product_keys pk ON (pk.hardware_serial = m2.machine_code OR pk.hardware_serial = m2.machine_key) WHERE pk.owner_id = :owner_id2))';
+            $params[':owner_id']  = $ownerId;
+            $params[':owner_id2'] = $ownerId;
+
+            // Restrict to owner-authorized changes only:
+            // Hide Administrator and VendoLink Support Admin entries for Water/Soap service time or configuration changes that the Owner cannot edit.
+            // Keep owner-made configuration changes visible.
+            $where[] = '(u.role = :owner_role AND ch.changed_by_user_id = :owner_user_id)';
+            $params[':owner_role']    = ROLE_OWNER;
+            $params[':owner_user_id'] = $ownerId;
+        } elseif ($ownerId !== null && $ownerId > 0) {
+            // Administrator scoped inspection of a specific owner's machines (admin retains full visibility into all audit records)
             $where[] = '(m.owner_id = :owner_id OR m.id IN (SELECT m2.id FROM machines m2 JOIN product_keys pk ON (pk.hardware_serial = m2.machine_code OR pk.hardware_serial = m2.machine_key) WHERE pk.owner_id = :owner_id2))';
             $params[':owner_id']  = $ownerId;
             $params[':owner_id2'] = $ownerId;

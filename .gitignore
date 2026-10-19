@@ -4,6 +4,10 @@
 # Environment / Local Overrides
 .env
 .env.local
+config/mail.local.php
+config/*.local.php
+config/db.production.php
+config/*.production.php
 
 # OS & Editor Metadata
 .DS_Store
@@ -16,6 +20,13 @@ Thumbs.db
 *.log
 logs/setup.lock
 setup.lock
+tests/sess_*
+sess_*
+*.zip
+
+# Uploads & Backups
+uploads/firmware/
+database/backups/
 
 # Build Artifacts
 *.elf

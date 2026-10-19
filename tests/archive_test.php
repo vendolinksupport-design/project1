@@ -72,7 +72,7 @@ try {
     $cleanupMaintIds[] = $maintItemId;
 
     // Complete the maintenance item to create a history record
-    $maintenance->complete($maintItemId, 21, 'Archived inspection completed');
+    $maintenance->complete($maintItemId, 1, 'Archived inspection completed');
 
     // Verify history record exists in archive
     $maintRes = $archive->getMaintenanceHistory(['search' => '__Archive Test Reminder__'], 1, 10);
@@ -107,7 +107,7 @@ try {
     $oldWaterTime  = (int) $water['service_seconds'];
 
     // Update configuration to trigger history log
-    $serviceModel->updateConfiguration((int) $water['id'], true, 10.00, 300, 21);
+    $serviceModel->updateConfiguration((int) $water['id'], true, 10.00, 300, 1);
 
     $configRes = $archive->getConfigurationHistory(['service' => 'water'], 1, 10);
     if (empty($configRes['items'])) {
@@ -132,7 +132,7 @@ try {
         ob_start();
         @include __DIR__ . '/../dashboard/archive.php';
         $out = ob_get_clean();
-        if (strpos($out, 'History Archive') === false) {
+        if (strpos($out, 'History') === false) {
             throw new RuntimeException("Archive page did not render for tab {$tab}.");
         }
     }

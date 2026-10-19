@@ -105,6 +105,34 @@ require_once __DIR__ . '/../includes/header.php';
             <?php endif; ?>
             <?= render_flash() ?>
 
+            <?php
+            $isLocalHost = (
+                in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1', 'localhost'], true) ||
+                strpos($_SERVER['HTTP_HOST'] ?? '', 'localhost') !== false ||
+                strpos($_SERVER['HTTP_HOST'] ?? '', '127.0.0.1') !== false ||
+                (defined('APP_ENV') && APP_ENV === 'development')
+            ) && (!defined('APP_ENV') || APP_ENV !== 'production');
+            ?>
+            <?php if ($isLocalHost): ?>
+            <div class="alert alert-info border border-info border-opacity-25 rounded-3 p-3 mb-3" style="background: rgba(14, 165, 233, 0.08);">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="small fw-bold text-info"><i class="bi bi-lightning-charge-fill me-1"></i>Localhost Test Bypass</span>
+                    <span class="badge bg-info-subtle text-info border border-info border-opacity-25" style="font-size: 0.68rem;">Local Dev Only</span>
+                </div>
+                <div class="d-flex gap-2 flex-wrap mb-2">
+                    <a href="<?= BASE_URL ?>/auth/dev_login.php?as=owner" class="btn btn-sm btn-info fw-bold text-dark px-3 shadow-sm">
+                        <i class="bi bi-box-arrow-in-right me-1"></i>1-Click Owner Login
+                    </a>
+                    <a href="<?= BASE_URL ?>/auth/dev_login.php?as=admin" class="btn btn-sm btn-outline-info px-3">
+                        <i class="bi bi-shield-lock me-1"></i>1-Click Admin Login
+                    </a>
+                </div>
+                <div class="text-secondary small" style="font-size: 0.75rem;">
+                    Manual login: <code>test_owner</code> or <code>admin</code> &bull; Password: <code>Password123!</code>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- Login Form -->
             <form id="loginForm" action="" method="POST" novalidate data-loading="true">
                 <?= csrf_field() ?>

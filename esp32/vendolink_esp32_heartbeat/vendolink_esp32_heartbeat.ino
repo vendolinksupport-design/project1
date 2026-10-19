@@ -63,11 +63,15 @@
  *   COM ──► 12V PSU (+), NC ──► Coin Slot RED (+12V VCC)
  *
  * @package VendoLink IoT
- * @version 2.8.0
+ * @version 3.0.0
  */
 
 #include <WiFi.h>
+#include <WebServer.h>
+#include <DNSServer.h>
 #include <HTTPClient.h>
+#include <HTTPUpdate.h>
+#include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <FS.h>
 #include <LittleFS.h>
@@ -123,43 +127,47 @@ struct OfflineRecord {
 };
 
 // ============================================================
-// 🌐 VENDOLINK CONNECTION CONFIGURATION
-// EDIT THIS SECTION WHEN CHANGING WIFI / SERVER
+// 🌐 Universal NVS Configuration & Dynamic Device Credentials
 // ============================================================
+Preferences nvsConfig;
 
-// 1. Wi-Fi Access Point Credentials
-// home wifi
-const char* WIFI_SSID = "WIFI 2.4Ghz";
-const char* WIFI_PASS = "p4ssw0rd";
-//iqoo wifi
-//const char* WIFI_SSID = "iQOO Neo9";
-//const char* WIFI_PASS = "P4ssw0rd4";
+String configWifiSsid      = "";
+String configWifiPass      = "";
+String configServerUrl     = DEFAULT_VENDOLINK_SERVER;
+String configEnrollSecret  = DEFAULT_ENROLLMENT_SECRET;
+String configMachineKey    = DEFAULT_MACHINE_KEY;
+String configMachineCode   = DEFAULT_MACHINE_CODE;
+String configApiToken      = "";
+bool   isDeviceEnrolled    = false;
+bool   isConfigured        = false;
 
+// Captive Portal Objects (Runs on Core 0 when Wi-Fi unconfigured or failed)
+WebServer* apServer        = nullptr;
+DNSServer* dnsServer       = nullptr;
+bool       apModeActive    = false;
+unsigned long apModeStartedAt = 0;
+volatile bool lcdNeedsRefresh = false;
 
-// 2. VendoLink Server / API Base URL
-// (Change to your phone hotspot IP, school local XAMPP IP, home IP, or online domain)
-// Examples:
-//   Local/Home:    "http://192.168.100.17/vendolink_claude_v1/api";
-//   Phone Hotspot: "http://192.168.43.100/vendolink_claude_v1/api"
-//   School XAMPP:  "http://192.168.1.xxx/vendolink_claude_v1/api"
-//   Online Host:   "https://yourdomain.com/api"
-//home
-const char* VENDOLINK_SERVER = "http://192.168.100.17/vendolink_claude_v1/api";
-//iqoo hotspot ip
-//const char* VENDOLINK_SERVER = "http://10.35.163.39/vendolink_claude_v1/api";
+inline String getDeviceMac() {
+    return WiFi.macAddress();
+}
 
-// 3. Machine API Authentication Token (Must match dashboard database)
-const char* MACHINE_API_TOKEN = "vl_dev_sec_9a8f3b2e7c1d4e5f6a7b8c9d0e";
+inline String getDeviceMacSuffix() {
+    String mac = WiFi.macAddress();
+    mac.replace(":", "");
+    if (mac.length() >= 4) {
+        return mac.substring(mac.length() - 4);
+    }
+    return "0000";
+}
 
-// ============================================================
-// DO NOT EDIT BELOW THIS LINE
-// ============================================================
+inline String getApSSID() {
+    return String(AP_SSID_PREFIX) + getDeviceMacSuffix();
+}
 
-// ============================================================
-// 🔗 Derived API Endpoints (Auto-constructed from VENDOLINK_SERVER)
-// ============================================================
+// 🔗 Derived API Endpoints (Auto-constructed dynamically from configServerUrl)
 inline String buildEndpointUrl(const char* endpointPath) {
-    String base = String(VENDOLINK_SERVER);
+    String base = configServerUrl;
     base.trim();
     while (base.endsWith("/")) {
         base.remove(base.length() - 1);
@@ -167,15 +175,416 @@ inline String buildEndpointUrl(const char* endpointPath) {
     return base + endpointPath;
 }
 
-const String SERVER_HEARTBEAT_URL = buildEndpointUrl("/machine/heartbeat.php");
-const String SERVER_COIN_URL      = buildEndpointUrl("/machine/coin.php");
-const String SERVER_TANK_URL      = buildEndpointUrl("/machine/tank.php");
-
 inline String maskSecret(const char* secret) {
     if (!secret) return "****";
     String s = String(secret);
     if (s.length() <= 4) return "****";
     return s.substring(0, 2) + "..." + s.substring(s.length() - 2);
+}
+
+// ------------------------------------------------------------
+// Universal HTTP/HTTPS Connection Helper
+// ------------------------------------------------------------
+inline bool setupHttpConnection(HTTPClient& http, const String& url, WiFiClientSecure& secClient, WiFiClient& plainClient) {
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    if (url.startsWith("https://")) {
+        secClient.setInsecure();
+        return http.begin(secClient, url);
+    } else {
+        return http.begin(plainClient, url);
+    }
+}
+
+// Forward declarations needed by captive portal and handlers
+void clearLCD();
+void printLCDLine(int row, String text);
+void updateLCDDisplay();
+void playTone(int frequency, int durationMs);
+void playBeep(int durationMs, int count);
+
+// ------------------------------------------------------------
+// NVS Configuration Load & Save Helpers
+// ------------------------------------------------------------
+void loadDeviceConfig() {
+    nvsConfig.begin("vlcfg", true);
+    configWifiSsid     = nvsConfig.getString("ssid", "");
+    configWifiPass     = nvsConfig.getString("pass", "");
+    configServerUrl    = nvsConfig.getString("server", DEFAULT_VENDOLINK_SERVER);
+    configEnrollSecret = nvsConfig.getString("boot_token", DEFAULT_ENROLLMENT_SECRET);
+    configMachineKey   = nvsConfig.getString("mkey", DEFAULT_MACHINE_KEY);
+    configMachineCode  = nvsConfig.getString("mcode", DEFAULT_MACHINE_CODE);
+    configApiToken     = nvsConfig.getString("token", "");
+    isDeviceEnrolled   = nvsConfig.getBool("enrolled", false);
+    isConfigured       = (configWifiSsid.length() > 0);
+    nvsConfig.end();
+
+    // Auto-migrate stale local server IP if NVS points to old IP
+    if (configServerUrl.indexOf("192.168.") != -1 || configServerUrl.indexOf("localhost") != -1) {
+        Serial.print(F("⚠️ [MIGRATION] Local server IP detected in NVS. Updating server to: "));
+        Serial.println(DEFAULT_VENDOLINK_SERVER);
+        configServerUrl = DEFAULT_VENDOLINK_SERVER;
+        nvsConfig.begin("vlcfg", false);
+        nvsConfig.putString("server", DEFAULT_VENDOLINK_SERVER);
+        nvsConfig.end();
+    }
+
+    Serial.println(F("⚙️ [NVS Config] Loaded Device Profile:"));
+    Serial.print(F("   Device MAC:   ")); Serial.println(getDeviceMac());
+    Serial.print(F("   Wi-Fi SSID:   ")); Serial.println(configWifiSsid.length() > 0 ? configWifiSsid : String(F("[NOT CONFIGURED — USING FACTORY HOTSPOT FALLBACK]")));
+    Serial.print(F("   Server URL:   ")); Serial.println(configServerUrl);
+    Serial.print(F("   Machine Key:  ")); Serial.println(configMachineKey);
+    Serial.print(F("   Machine Code: ")); Serial.println(configMachineCode);
+    Serial.print(F("   Bootstrap:    ")); Serial.println(configEnrollSecret.length() > 0 ? F("[CONFIGURED]") : F("[NOT CONFIGURED]"));
+    Serial.print(F("   Enrolled:     ")); Serial.println(isDeviceEnrolled ? F("YES") : F("NO"));
+}
+
+void saveDeviceNetworkConfig(const String& ssid, const String& pass) {
+    nvsConfig.begin("vlcfg", false);
+    nvsConfig.putString("ssid", ssid);
+    nvsConfig.putString("pass", pass);
+    nvsConfig.end();
+
+    configWifiSsid = ssid;
+    configWifiPass = pass;
+    isConfigured   = true;
+}
+
+void saveInstallerConfig(const String& server, const String& bootToken) {
+    nvsConfig.begin("vlcfg", false);
+    if (server.length() > 0) {
+        nvsConfig.putString("server", server);
+        configServerUrl = server;
+    }
+    if (bootToken.length() > 0) {
+        nvsConfig.putString("boot_token", bootToken);
+        configEnrollSecret = bootToken;
+    }
+    nvsConfig.end();
+}
+
+void saveDeviceCredentials(const String& mkey, const String& mcode, const String& token) {
+    nvsConfig.begin("vlcfg", false);
+    nvsConfig.putString("mkey", mkey);
+    nvsConfig.putString("mcode", mcode);
+    nvsConfig.putString("token", token);
+    nvsConfig.putBool("enrolled", true);
+    // Securely purge single-use bootstrap token from flash once enrolled
+    nvsConfig.remove("boot_token");
+    nvsConfig.end();
+
+    configMachineKey   = mkey;
+    configMachineCode  = mcode;
+    configApiToken     = token;
+    configEnrollSecret = "";
+    isDeviceEnrolled   = true;
+}
+
+// ------------------------------------------------------------
+// Captive Portal HTML & HTTP Request Handlers
+// ------------------------------------------------------------
+
+// 1. Customer Wi-Fi Setup Portal (Only SSID & Password)
+void handleCaptivePortalRoot() {
+    if (!apServer) return;
+    String html = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>VendoLink Wi-Fi Setup</title>"
+        "<style>"
+        "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0f1d;color:#f1f5f9;padding:20px;margin:0;}"
+        ".card{max-width:400px;margin:20px auto;background:#131d36;border:1px solid #1e293b;border-radius:14px;padding:24px;box-shadow:0 10px 25px rgba(0,0,0,0.5);}"
+        "h2{margin-top:0;color:#38bdf8;font-size:22px;text-align:center;}"
+        ".info{font-size:13px;color:#94a3b8;margin-bottom:20px;text-align:center;line-height:1.8;}"
+        ".badge{display:inline-block;background:#0284c7;color:#fff;padding:2px 8px;border-radius:6px;font-family:monospace;font-size:12px;}"
+        "label{display:block;font-size:13px;font-weight:600;color:#cbd5e1;margin-top:14px;margin-bottom:6px;}"
+        "input{width:100%;box-sizing:border-box;padding:12px;background:#0b1120;border:1px solid #334155;border-radius:8px;color:#fff;font-size:14px;}"
+        "input:focus{outline:none;border-color:#38bdf8;}"
+        "button{width:100%;background:#0284c7;color:#fff;font-weight:bold;border:none;padding:14px;border-radius:8px;font-size:15px;margin-top:22px;cursor:pointer;}"
+        "button:hover{background:#0369a1;}"
+        ".footer{font-size:12px;text-align:center;color:#64748b;margin-top:20px;}"
+        ".inst-link{color:#475569;text-decoration:none;font-size:11px;}"
+        ".inst-link:hover{color:#94a3b8;}"
+        "</style></head><body><div class='card'>"
+        "<h2>VendoLink Wi-Fi Setup</h2>"
+        "<div class='info'>Device MAC: <span class='badge'>");
+    html += getDeviceMac();
+    html += F("</span><br>Firmware: <span class='badge'>v");
+    html += FIRMWARE_VERSION; // v3.0.0
+    html += F("</span></div>"
+        "<form method='POST' action='/save'>"
+        "<label>Wi-Fi Network Name (SSID)</label>"
+        "<input type='text' name='ssid' value='");
+    html += configWifiSsid;
+    html += F("' placeholder='Enter Wi-Fi Network Name' required>"
+        "<label>Wi-Fi Password</label>"
+        "<input type='password' name='pass' value='");
+    html += configWifiPass;
+    html += F("' placeholder='Enter Wi-Fi Password'>"
+        "<button type='submit'>Connect Machine</button>"
+        "</form><div class='footer'>VendoLink IoT Controller<br><a href='/installer' class='inst-link'>Installer Settings</a></div>"
+        "</div></body></html>");
+
+    apServer->send(200, "text/html", html);
+}
+
+void handleCaptivePortalSave() {
+    if (!apServer) return;
+    String sSsid = apServer->arg("ssid");
+    String sPass = apServer->arg("pass");
+
+    sSsid.trim();
+
+    if (sSsid.length() == 0) {
+        apServer->send(400, "text/plain", "Missing required field: Wi-Fi SSID is required.");
+        return;
+    }
+
+    saveDeviceNetworkConfig(sSsid, sPass);
+
+    String resp = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Wi-Fi Saved</title><style>"
+        "body{font-family:sans-serif;background:#0a0f1d;color:#22c55e;padding:40px;text-align:center;}"
+        ".box{max-width:380px;margin:auto;background:#131d36;padding:30px;border-radius:12px;border:1px solid #22c55e;}"
+        "h3{color:#38bdf8;} p{color:#cbd5e1;}"
+        "</style></head><body><div class='box'>"
+        "<h3>Configuration Saved!</h3>"
+        "<p>Connecting to <strong>");
+    resp += sSsid;
+    resp += F("</strong>.<br>The machine is now connecting to the network.</p>"
+        "</div></body></html>");
+
+    apServer->send(200, "text/html", resp);
+    delay(1000);
+
+    // Signal Core 0 network worker to teardown AP and connect to Wi-Fi
+    apModeActive = false;
+}
+
+// 2. Protected Installer Configuration Portal (/installer)
+void handleInstallerRoot() {
+    if (!apServer) return;
+    String pin = apServer->arg("pin");
+    bool isAuthorized = (pin.length() > 0 && pin == String(INSTALLER_PORTAL_PIN));
+
+    String html = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Installer Configuration</title><style>"
+        "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0f1d;color:#f1f5f9;padding:20px;margin:0;}"
+        ".card{max-width:420px;margin:20px auto;background:#131d36;border:1px solid #334155;border-radius:14px;padding:24px;box-shadow:0 10px 25px rgba(0,0,0,0.5);}"
+        "h2{margin-top:0;color:#f59e0b;font-size:20px;text-align:center;}"
+        ".info{font-size:13px;color:#94a3b8;margin-bottom:18px;text-align:center;line-height:1.7;}"
+        ".badge{display:inline-block;background:#334155;color:#f8fafc;padding:2px 8px;border-radius:6px;font-family:monospace;font-size:12px;}"
+        "label{display:block;font-size:13px;font-weight:600;color:#cbd5e1;margin-top:12px;margin-bottom:6px;}"
+        "input{width:100%;box-sizing:border-box;padding:11px;background:#0b1120;border:1px solid #334155;border-radius:8px;color:#fff;font-size:14px;}"
+        "button{width:100%;background:#d97706;color:#fff;font-weight:bold;border:none;padding:13px;border-radius:8px;font-size:14px;margin-top:18px;cursor:pointer;}"
+        "button:hover{background:#b45309;}"
+        ".footer{font-size:12px;text-align:center;color:#64748b;margin-top:16px;}"
+        "a{color:#38bdf8;text-decoration:none;}"
+        "</style></head><body><div class='card'>"
+        "<h2>Installer Configuration</h2>");
+
+    if (!isAuthorized) {
+        html += F("<p class='info'>Enter installer security PIN to access deployment settings.</p>"
+            "<form method='GET' action='/installer'>"
+            "<label>Security PIN</label>"
+            "<input type='password' name='pin' placeholder='Enter PIN' required autofocus>"
+            "<button type='submit'>Access Installer Mode</button>"
+            "</form>");
+    } else {
+        html += F("<div class='info'>Device MAC: <span class='badge'>");
+        html += getDeviceMac();
+        html += F("</span><br>Universal Firmware: <span class='badge'>v");
+        html += FIRMWARE_VERSION;
+        html += F("</span></div>"
+            "<form method='POST' action='/installer/save'>"
+            "<input type='hidden' name='pin' value='");
+        html += pin;
+        html += F("'>"
+            "<label>VendoLink Server API URL</label>"
+            "<input type='text' name='server' value='");
+        html += configServerUrl;
+        html += F("' placeholder='https://vendolink.online/api' required>"
+            "<label>Per-Device Bootstrap Token</label>"
+            "<input type='password' name='boot_token' value='' placeholder='Enter per-device bootstrap token'>"
+            "<button type='submit'>Save Deployment Settings</button>"
+            "</form>");
+    }
+
+    html += F("<div class='footer'><a href='/'>&larr; Back to Customer Wi-Fi Setup</a></div>"
+        "</div></body></html>");
+
+    apServer->send(200, "text/html", html);
+}
+
+void handleInstallerSave() {
+    if (!apServer) return;
+    String pin = apServer->arg("pin");
+    if (pin != String(INSTALLER_PORTAL_PIN)) {
+        apServer->send(403, "text/plain", "Forbidden: Invalid installer PIN.");
+        return;
+    }
+
+    String sServer = apServer->arg("server");
+    String sBoot   = apServer->arg("boot_token");
+    sServer.trim();
+    sBoot.trim();
+
+    if (sServer.length() == 0) {
+        apServer->send(400, "text/plain", "Bad Request: Server URL cannot be empty.");
+        return;
+    }
+
+    saveInstallerConfig(sServer, sBoot);
+
+    String resp = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Installer Saved</title><style>"
+        "body{font-family:sans-serif;background:#0a0f1d;color:#f59e0b;padding:40px;text-align:center;}"
+        ".box{max-width:380px;margin:auto;background:#131d36;padding:30px;border-radius:12px;border:1px solid #f59e0b;}"
+        "h3{color:#f59e0b;} p{color:#cbd5e1;}"
+        "a{color:#38bdf8;text-decoration:none;}"
+        "</style></head><body><div class='box'>"
+        "<h3>Installer Settings Saved</h3>"
+        "<p>Server URL and bootstrap token updated in NVS.</p>"
+        "<p><a href='/'>&larr; Return to Setup</a></p>"
+        "</div></body></html>");
+
+    apServer->send(200, "text/html", resp);
+}
+
+void startCaptivePortal() {
+    if (apModeActive) return;
+
+    String apSSID = getApSSID();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP(apSSID.c_str(), AP_DEFAULT_PASS);
+
+    delay(200);
+
+    IPAddress apIP(192, 168, 4, 1);
+    WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+
+    if (!dnsServer) dnsServer = new DNSServer();
+    dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
+    dnsServer->start(53, "*", apIP);
+
+    if (!apServer) apServer = new WebServer(80);
+    apServer->on("/", HTTP_GET, handleCaptivePortalRoot);
+    apServer->on("/save", HTTP_POST, handleCaptivePortalSave);
+    apServer->on("/installer", HTTP_GET, handleInstallerRoot);
+    apServer->on("/installer", HTTP_POST, handleInstallerRoot);
+    apServer->on("/installer/save", HTTP_POST, handleInstallerSave);
+    apServer->onNotFound(handleCaptivePortalRoot);
+    apServer->begin();
+
+    apModeActive = true;
+    apModeStartedAt = millis();
+
+    Serial.println(F("========================================"));
+    Serial.println(F("📲 [CAPTIVE PORTAL ACTIVE]"));
+    Serial.print(F("   SSID:     ")); Serial.println(apSSID);
+    Serial.print(F("   Password: ")); Serial.println(AP_DEFAULT_PASS);
+    Serial.println(F("   IP:       192.168.4.1"));
+    Serial.println(F("   Connect with phone to configure Wi-Fi"));
+    Serial.println(F("========================================"));
+
+    // Signal Core 1 (exclusive LCD owner) to display captive portal setup screen
+    lcdNeedsRefresh = true;
+}
+
+void stopCaptivePortal() {
+    if (!apModeActive) return;
+    if (apServer) {
+        apServer->stop();
+        delete apServer;
+        apServer = nullptr;
+    }
+    if (dnsServer) {
+        dnsServer->stop();
+        delete dnsServer;
+        dnsServer = nullptr;
+    }
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
+    apModeActive = false;
+    lcdNeedsRefresh = true;
+    Serial.println(F("📶 [AP CLOSED] Captive Portal closed. Resuming Wi-Fi client mode."));
+}
+
+// Forward declaration of JSON helper functions
+String extractJsonString(String body, String keyName, String defaultVal);
+
+// ------------------------------------------------------------
+// Automated Device Enrollment Handshake
+// ------------------------------------------------------------
+bool performDeviceEnrollment() {
+    if (WiFi.status() != WL_CONNECTED) return false;
+
+    String regUrl = buildEndpointUrl("/machine/register.php");
+    Serial.println(F("🔑 [ENROLL] Handshaking with VendoLink enrollment endpoint..."));
+    Serial.print(F("   URL: ")); Serial.println(regUrl);
+
+    WiFiClientSecure secClient;
+    WiFiClient plainClient;
+    HTTPClient http;
+    setupHttpConnection(http, regUrl, secClient, plainClient);
+    http.setConnectTimeout(6000); // 6-second socket connect timeout
+    http.setTimeout(5000);        // 5-second response read timeout
+    http.addHeader("Content-Type", "application/json");
+    if (configEnrollSecret.length() > 0) {
+        http.addHeader("X-Bootstrap-Token", configEnrollSecret.c_str());
+        http.addHeader("X-Enrollment-Token", configEnrollSecret.c_str());
+    }
+
+    String ipStr = WiFi.localIP().toString();
+    String payload = "{";
+    payload += "\"device_mac\":\"" + getDeviceMac() + "\",";
+    payload += "\"firmware_version\":\"" + String(FIRMWARE_VERSION) + "\",";
+    payload += "\"model\":\"ESP32-WROOM-32\",";
+    payload += "\"ip_address\":\"" + ipStr + "\"";
+    payload += "}";
+
+    int code = http.POST(payload);
+    Serial.print(F("🔑 [ENROLL] Response status: ")); Serial.println(code);
+
+    if (code == 200 || code == 201) {
+        String resp = http.getString();
+        http.end();
+
+        String mKey  = extractJsonString(resp, "machine_key", "");
+        String mCode = extractJsonString(resp, "machine_code", "");
+        String token = extractJsonString(resp, "api_token", "");
+
+        if (mKey.length() > 0 && token.length() > 0) {
+            saveDeviceCredentials(mKey, mCode, token);
+            Serial.println(F("========================================"));
+            Serial.println(F("✅ [ENROLL SUCCESS] Device enrolled successfully!"));
+            Serial.print(F("   Assigned Machine Key:  ")); Serial.println(mKey);
+            Serial.print(F("   Assigned Machine Code: ")); Serial.println(mCode);
+            Serial.print(F("   Security Token:        ")); Serial.println(maskSecret(token.c_str()));
+            Serial.println(F("========================================"));
+            playTone(1500, 120);
+            delay(80);
+            playTone(2000, 200);
+            return true;
+        } else {
+            Serial.println(F("❌ [ENROLL ERROR] Incomplete credentials in server response."));
+            return false;
+        }
+    } else {
+        http.end();
+        if (code < 0) {
+            Serial.print(F("❌ [ENROLL FAILED] Network connection failed (HTTP "));
+            Serial.print(code);
+            Serial.println(F("). Server unreachable — check Wi-Fi, Server IP (config.h), or Apache port."));
+        } else if (code == 401 || code == 403) {
+            Serial.print(F("❌ [ENROLL FAILED] Server rejected authorization (HTTP "));
+            Serial.print(code);
+            Serial.println(F("). Device requires valid bootstrap credential."));
+        } else {
+            Serial.print(F("❌ [ENROLL FAILED] Server error during enrollment (HTTP "));
+            Serial.print(code);
+            Serial.println(F(")."));
+        }
+        return false;
+    }
 }
 
 // ============================================================
@@ -197,6 +606,7 @@ void showInterruptedSessionScreen(int subPressState);
 void handleRecoveryButtonPress();
 void cancelInterruptedSession();
 void resumeInterruptedSession();
+void performOtaUpdate(const String& downloadUrl, const String& newVersion);
 
 
 
@@ -243,6 +653,7 @@ volatile uint16_t offlinePendingCount = 0;
 volatile bool isWiFiConnected   = false;
 volatile bool isServerOnline    = false;
 volatile bool serverStateLogged = false;
+volatile bool isOtaUpdating     = false;
 
 // Pending tank alert queue (Core 1 sets -> Core 0 transmits)
 // -1 = no alert, 0 = low tank, 1 = normal tank
@@ -252,22 +663,114 @@ volatile int pendingSoapAlert  = -1;
 // 🪙 Local Credit Balance (Accumulates on Coin Drop)
 float currentCredit = 0.0;
 
+// 🛠️ Hardware Diagnostic Maintenance Mode (3-Second Dual Hold)
+bool          diagnosticScreenActive = false;
+unsigned long diagnosticScreenUntil  = 0;
+unsigned long dualBtnHoldStart       = 0;
+int           lastDiagCountdownSec   = -1;
+
 // ⚙️ Dynamic Configured Rates, Times & Service Status (Synced from Website via Heartbeat)
 float waterCoinValue        = 5.0;
 float soapCoinValue         = 5.0;
-int   waterServiceSec       = 120;
-int   soapServiceSec        = 120;
+int   waterServiceSec       = 120; // Default: 2:00
+int   soapServiceSec        = 60;  // Default: 1:00
 bool  isWaterServiceEnabled = true;
 bool  isSoapServiceEnabled  = true;
 
 // 📺 20x4 LCD Screen Customizer Lines (Synced from Website)
-String customLcdLine1 = "== VendoLink v2.2 ==";
+String customLcdLine1 = "== VendoLink v" + String(FIRMWARE_VERSION).substring(0, 3) + " ==";
 String customLcdLine2 = "WELCOME CUSTOMER!";
 String customLcdLine3 = "INSERT COIN FIRST!";
 String customLcdLine4 = "WATER:P5 | SOAP:P5";
 
-// Thread-safe LCD refresh trigger from Core 0 to Core 1
-volatile bool lcdNeedsRefresh = false;
+// Machine Profile & Dynamic Service Names (Carwash vs Tire Air & Blower vs Solo Inflator)
+String machineType       = "carwash";       // "carwash", "air_blower", "tire_air"
+String relay1ServiceName = "WATER SERVICE"; // Dynamic name for Relay 1
+String relay2ServiceName = "SOAP SERVICE";  // Dynamic name for Relay 2
+
+// ------------------------------------------------------------
+// Persistent Machine Service & LCD Configuration (NVS "vlsvc")
+// Ensures owner's custom times/rates persist across power cuts & offline mode
+// ------------------------------------------------------------
+void loadServiceConfigFromNVS() {
+    Preferences nvsSvc;
+    nvsSvc.begin("vlsvc", true);
+
+    waterServiceSec       = nvsSvc.getInt("w_sec", 120);
+    soapServiceSec        = nvsSvc.getInt("s_sec", 60);
+    waterCoinValue        = nvsSvc.getFloat("w_coin", 5.0f);
+    soapCoinValue         = nvsSvc.getFloat("s_coin", 5.0f);
+    isWaterServiceEnabled = nvsSvc.getBool("w_en", true);
+    isSoapServiceEnabled  = nvsSvc.getBool("s_en", true);
+
+    String savedMType = nvsSvc.getString("m_type", "");
+    if (savedMType.length() > 0) machineType = savedMType;
+
+    String savedR1 = nvsSvc.getString("r1_name", "");
+    if (savedR1.length() > 0) {
+        relay1ServiceName = savedR1;
+    } else if (machineType == "air_blower" || machineType == "tire_air") {
+        relay1ServiceName = "TIRE AIR";
+    } else {
+        relay1ServiceName = "WATER SERVICE";
+    }
+
+    String savedR2 = nvsSvc.getString("r2_name", "");
+    if (savedR2.length() > 0) {
+        relay2ServiceName = savedR2;
+    } else if (machineType == "air_blower") {
+        relay2ServiceName = "CAR BLOWER";
+    } else {
+        relay2ServiceName = "SOAP SERVICE";
+    }
+
+    String savedL1 = nvsSvc.getString("l1", "");
+    if (savedL1.length() > 0) customLcdLine1 = savedL1;
+    String savedL2 = nvsSvc.getString("l2", "");
+    if (savedL2.length() > 0) customLcdLine2 = savedL2;
+    String savedL3 = nvsSvc.getString("l3", "");
+    if (savedL3.length() > 0) customLcdLine3 = savedL3;
+    String savedL4 = nvsSvc.getString("l4", "");
+    if (savedL4.length() > 0) customLcdLine4 = savedL4;
+
+    nvsSvc.end();
+
+    Serial.println(F("⚙️ [NVS Services] Loaded Persistent Machine Service Config:"));
+    Serial.print(F("   Machine Type: ")); Serial.println(machineType);
+    Serial.print(F("   Relay 1: ")); Serial.print(relay1ServiceName);
+    Serial.print(F(" | Time: ")); Serial.print(waterServiceSec);
+    Serial.print(F("s | Rate: P")); Serial.print(waterCoinValue, 2);
+    Serial.println(isWaterServiceEnabled ? F(" [ENABLED]") : F(" [DISABLED]"));
+    Serial.print(F("   Relay 2: ")); Serial.print(relay2ServiceName);
+    Serial.print(F(" | Time: ")); Serial.print(soapServiceSec);
+    Serial.print(F("s | Rate: P")); Serial.print(soapCoinValue, 2);
+    Serial.println(isSoapServiceEnabled ? F(" [ENABLED]") : F(" [DISABLED]"));
+}
+
+void saveServiceConfigToNVS() {
+    Preferences nvsSvc;
+    if (!nvsSvc.begin("vlsvc", false)) {
+        Serial.println(F("❌ [NVS Services] Failed to open 'vlsvc' namespace for writing!"));
+        return;
+    }
+
+    nvsSvc.putInt("w_sec", waterServiceSec);
+    nvsSvc.putInt("s_sec", soapServiceSec);
+    nvsSvc.putFloat("w_coin", waterCoinValue);
+    nvsSvc.putFloat("s_coin", soapCoinValue);
+    nvsSvc.putBool("w_en", isWaterServiceEnabled);
+    nvsSvc.putBool("s_en", isSoapServiceEnabled);
+    nvsSvc.putString("m_type", machineType);
+    nvsSvc.putString("r1_name", relay1ServiceName);
+    nvsSvc.putString("r2_name", relay2ServiceName);
+    nvsSvc.putString("l1", customLcdLine1);
+    nvsSvc.putString("l2", customLcdLine2);
+    nvsSvc.putString("l3", customLcdLine3);
+    nvsSvc.putString("l4", customLcdLine4);
+
+    nvsSvc.end();
+    Serial.println(F("💾 [NVS Services] Machine service config successfully saved to NVS!"));
+}
 
 // Service Relay & Active Service Tracking
 volatile bool activeServiceRunning = false;
@@ -542,7 +1045,7 @@ bool offlineQueueAppendWithTxId(const char* serviceKeyName, float amount, uint32
         snprintf(macBuf, sizeof(macBuf), "%04X%08X", (uint16_t)(chipMac >> 32), (uint32_t)chipMac);
         snprintf(rec.clientTxId, sizeof(rec.clientTxId), "VL-%s-%05u", macBuf, (unsigned int)(queueHeader.lastTxSeq % 100000));
     }
-    strncpy(rec.machineKey, MACHINE_KEY, sizeof(rec.machineKey) - 1);
+    strncpy(rec.machineKey, configMachineKey.c_str(), sizeof(rec.machineKey) - 1);
     strncpy(rec.serviceKey, serviceKeyName, sizeof(rec.serviceKey) - 1);
     rec.status = status;
     rec.actualRuntimeSeconds = (status == TX_COMPLETED && actualRuntimeSec == 0) ? (uint16_t)durationSec : actualRuntimeSec;
@@ -654,7 +1157,113 @@ String extractJsonString(String body, String keyName, String defaultVal) {
     int secondQuote = body.indexOf("\"", firstQuote + 1);
     if (secondQuote == -1) return defaultVal;
 
-    return body.substring(firstQuote + 1, secondQuote);
+    String val = body.substring(firstQuote + 1, secondQuote);
+    val.replace("\\/", "/");
+    return val;
+}
+
+// ============================================================
+// ⚡ Wireless Over-The-Air (OTA) Firmware Flasher
+// ============================================================
+void performOtaUpdate(const String& rawDownloadUrl, const String& newVersion) {
+    isOtaUpdating = true; // Block Core 1 loop from touching LCD or GPIOs
+    delay(100);           // Allow Core 1 to yield
+
+    String downloadUrl = rawDownloadUrl;
+    downloadUrl.replace("\\/", "/");
+    downloadUrl.trim();
+
+    String cleanVer = newVersion;
+    if (cleanVer.startsWith("v") || cleanVer.startsWith("V")) {
+        cleanVer = cleanVer.substring(1);
+    }
+
+    // 1. Safety: Turn off all relays immediately
+    digitalWrite(WATER_RELAY_PIN, RELAY_OFF_STATE);
+    digitalWrite(SOAP_RELAY_PIN, RELAY_OFF_STATE);
+    // Cut off coin slot power to prevent coin drops during update
+    digitalWrite(COIN_POWER_RELAY_PIN, COIN_RELAY_POWER_OFF);
+
+    // 2. Clear LCD and Display OTA Update Notice on 20x4 LCD
+    clearLCD();
+    printLCDLine(0, "== VendoLink OTA ==");
+    printLCDLine(1, "UPDATING FIRMWARE...");
+    char verBuf[21];
+    snprintf(verBuf, sizeof(verBuf), "v%s -> v%s", FIRMWARE_VERSION, cleanVer.c_str());
+    printLCDLine(2, String(verBuf));
+    printLCDLine(3, "CONNECTING...");
+
+    // Beep to alert technician/owner
+    playTone(1000, 150);
+    delay(100);
+    playTone(1200, 200);
+
+    Serial.println(F("========================================"));
+    Serial.println(F("🚀 [OTA] STARTING FIRMWARE DOWNLOAD & FLASH"));
+    Serial.print(F("   From: ")); Serial.println(downloadUrl);
+    Serial.print(F("   Target Version: v")); Serial.println(cleanVer);
+    Serial.print(F("   Free Heap: ")); Serial.print(ESP.getFreeHeap()); Serial.println(F(" bytes"));
+    Serial.println(F("========================================"));
+
+    httpUpdate.rebootOnUpdate(false);
+    httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+
+    // Visual progress callback on 20x4 LCD
+    httpUpdate.onProgress([](size_t cur, size_t total) {
+        static int lastPct = -1;
+        if (total > 0) {
+            int pct = (int)((cur * 100) / total);
+            if (pct != lastPct && pct % 10 == 0) {
+                lastPct = pct;
+                char pBuf[21];
+                snprintf(pBuf, sizeof(pBuf), "PROGRESS: %d%%", pct);
+                printLCDLine(3, String(pBuf));
+                Serial.printf("⚡ [OTA] Progress: %d%% (%u / %u bytes)\n", pct, (unsigned)cur, (unsigned)total);
+            }
+        }
+    });
+
+    t_httpUpdate_return ret;
+    if (downloadUrl.startsWith("https://")) {
+        WiFiClientSecure secureClient;
+        secureClient.setInsecure();
+        secureClient.setTimeout(30);
+        ret = httpUpdate.update(secureClient, downloadUrl);
+    } else {
+        WiFiClient client;
+        client.setTimeout(30);
+        ret = httpUpdate.update(client, downloadUrl);
+    }
+
+    if (ret == HTTP_UPDATE_OK) {
+        Serial.println(F("✅ [OTA] FIRMWARE UPDATE SUCCESSFUL! Rebooting into new version..."));
+        clearLCD();
+        printLCDLine(0, "== UPDATE COMPLETE =");
+        printLCDLine(1, "FIRMWARE INSTALLED!");
+        printLCDLine(2, "NEW VERSION: v" + cleanVer);
+        printLCDLine(3, "REBOOTING NOW...");
+        playCompletionMelody();
+        delay(2500);
+        ESP.restart();
+    } else {
+        Serial.print(F("❌ [OTA] Firmware Update Failed. Error ("));
+        Serial.print(httpUpdate.getLastError());
+        Serial.print(F("): "));
+        Serial.println(httpUpdate.getLastErrorString());
+
+        clearLCD();
+        printLCDLine(0, "== OTA FAILED ==");
+        printLCDLine(1, "CODE: " + String(httpUpdate.getLastError()));
+        String errStr = httpUpdate.getLastErrorString();
+        if (errStr.length() > 20) errStr = errStr.substring(0, 20);
+        printLCDLine(2, errStr);
+        printLCDLine(3, "RESUMING IN 5s...");
+        playTone(400, 500);
+        delay(5000);
+        isOtaUpdating = false;
+        clearLCD();
+        updateLCDDisplay();
+    }
 }
 
 // ============================================================
@@ -666,14 +1275,37 @@ void networkWorkerTask(void *pvParameters) {
     unsigned long lastNetAttempt = 0;
     unsigned long lastHeartbeatAttempt = 0;
     unsigned long lastSyncAttempt = 0;
+    unsigned long wifiConnectStartTime = 0;
+    bool wifiAttemptInProgress = false;
 
     for (;;) {
         unsigned long now = millis();
+
+        // 0. If Captive Portal is active, serve DNS & Web clients
+        if (apModeActive) {
+            if (dnsServer) dnsServer->processNextRequest();
+            if (apServer) apServer->handleClient();
+
+            // If user saved credentials, apModeActive became false, so stop AP
+            if (!apModeActive) {
+                stopCaptivePortal();
+                lcdNeedsRefresh = true;
+            } else if (isConfigured && (now - apModeStartedAt >= AP_PORTAL_TIMEOUT_MS)) {
+                // If portal timed out and Wi-Fi credentials exist, retry Wi-Fi
+                Serial.println(F("⏱️ [PORTAL TIMEOUT] Window expired. Re-attempting Wi-Fi connection."));
+                stopCaptivePortal();
+                lcdNeedsRefresh = true;
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
 
         // 1. Maintain Wi-Fi Connection
         if (WiFi.status() == WL_CONNECTED) {
             if (!isWiFiConnected) {
                 isWiFiConnected = true;
+                wifiAttemptInProgress = false;
                 Serial.println();
                 Serial.println(F("========================================"));
                 Serial.print(F("📶 [NET] Wi-Fi Connected! IP: "));
@@ -683,18 +1315,69 @@ void networkWorkerTask(void *pvParameters) {
         } else {
             isWiFiConnected = false;
             isServerOnline  = false;
-            if (now - lastNetAttempt >= 10000) {
-                lastNetAttempt = now;
-                Serial.print(F("📶 [NET] Connecting to Wi-Fi SSID: "));
-                Serial.print(WIFI_SSID);
-                Serial.println(F(" (Password: [PROTECTED])"));
-                WiFi.mode(WIFI_STA);
-                WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+            String targetSsid = configWifiSsid;
+            String targetPass = configWifiPass;
+            bool isFactoryAttempt = false;
+
+            // If customer has not configured Wi-Fi, attempt connection to Factory / Workshop Hotspot
+            if (targetSsid.length() == 0) {
+                targetSsid = FACTORY_WIFI_SSID;
+                targetPass = FACTORY_WIFI_PASS;
+                isFactoryAttempt = true;
+            }
+
+            if (!wifiAttemptInProgress) {
+                if (now - lastNetAttempt >= 10000) {
+                    lastNetAttempt = now;
+                    wifiConnectStartTime = now;
+                    wifiAttemptInProgress = true;
+                    if (isFactoryAttempt) {
+                        Serial.println(F("----------------------------------------"));
+                        Serial.print(F("🏭 [FACTORY PROVISION] Attempting Workshop Hotspot: "));
+                        Serial.println(targetSsid);
+                        Serial.println(F("   (Turn on phone hotspot: 'VendoLink-Factory' / 'factory12345')"));
+                        Serial.println(F("----------------------------------------"));
+                    } else {
+                        Serial.print(F("📶 [NET] Connecting to Wi-Fi SSID: "));
+                        Serial.print(targetSsid);
+                        Serial.println(F(" (Password: [PROTECTED])"));
+                    }
+                    WiFi.mode(WIFI_STA);
+                    WiFi.begin(targetSsid.c_str(), targetPass.c_str());
+                }
+            } else {
+                if (now - wifiConnectStartTime >= 25000) {
+                    if (isFactoryAttempt) {
+                        Serial.println(F("⚠️ [FACTORY TIMEOUT] Workshop hotspot not detected (Customer location)."));
+                        Serial.println(F("📲 Launching Captive Portal setup for customer Wi-Fi..."));
+                        wifiAttemptInProgress = false;
+                        startCaptivePortal();
+                        vTaskDelay(pdMS_TO_TICKS(100));
+                        continue;
+                    } else {
+                        // Wi-Fi was already configured by owner! This is an offline / power outage scenario.
+                        // Machine MUST stay in normal operation with owner's custom LCD lines and times!
+                        Serial.println(F("⚠️ [NET OFFLINE] Configured Wi-Fi not reachable (Outage / Router offline)."));
+                        Serial.println(F("🔌 Machine continuing in 100% OFFLINE mode with owner's saved NVS config."));
+                        wifiAttemptInProgress = false;
+                        lastNetAttempt = now; // Silent background retry after 15 seconds
+                    }
+                }
             }
         }
 
         // 2. Only proceed if Wi-Fi connected AND machine is not actively dispensing
         if (isWiFiConnected && !activeServiceRunning) {
+
+            // 2.1 Automated Device Self-Enrollment check
+            if (!isDeviceEnrolled || configApiToken.length() == 0) {
+                bool enrolled = performDeviceEnrollment();
+                if (!enrolled) {
+                    vTaskDelay(pdMS_TO_TICKS(5000));
+                    continue;
+                }
+            }
 
             // 3. Server Reachability Probe / Heartbeat
             unsigned long heartbeatInterval = isServerOnline ? HEARTBEAT_INTERVAL_MS : 20000;
@@ -704,15 +1387,17 @@ void networkWorkerTask(void *pvParameters) {
                 unsigned long startMs = millis();
                 Serial.println(F("[NET:Heartbeat] Starting request..."));
 
+                WiFiClientSecure secClient;
+                WiFiClient plainClient;
                 HTTPClient http;
-                http.begin(SERVER_HEARTBEAT_URL);
+                setupHttpConnection(http, buildEndpointUrl("/machine/heartbeat.php"), secClient, plainClient);
                 http.addHeader("Content-Type", "application/json");
-                http.addHeader("X-Machine-Token", MACHINE_API_TOKEN);
-                http.setTimeout(1500);
+                http.addHeader("X-Machine-Token", configApiToken.c_str());
+                http.setTimeout(4000);
 
                 String ipStr = WiFi.localIP().toString();
                 String jsonPayload = "{";
-                jsonPayload += "\"machine_key\":\"" + String(MACHINE_KEY) + "\",";
+                jsonPayload += "\"machine_key\":\"" + configMachineKey + "\",";
                 jsonPayload += "\"status\":\"online\",";
                 jsonPayload += "\"ip_address\":\"" + ipStr + "\",";
                 jsonPayload += "\"firmware_version\":\"" + String(FIRMWARE_VERSION) + "\"";
@@ -747,26 +1432,88 @@ void networkWorkerTask(void *pvParameters) {
 
                     String responseBody = http.getString();
 
+                    // 1. Extract Machine Profile Type ("carwash", "air_blower", "tire_air")
+                    bool configChanged = false;
+
+                    String mType = extractJsonString(responseBody, "machine_type", machineType);
+                    if (mType.length() > 0 && mType != machineType) {
+                        machineType = mType;
+                        configChanged = true;
+                        Serial.print(F("⚙️ [Config] Machine Profile updated from server: "));
+                        Serial.println(machineType);
+                        lcdNeedsRefresh = true;
+                    }
+
                     int waterPos = responseBody.indexOf("\"water\"");
+                    if (waterPos == -1) waterPos = responseBody.indexOf("\"air\"");
                     if (waterPos != -1) {
                         String waterChunk = responseBody.substring(waterPos);
-                        float val  = extractJsonFloat(waterChunk, "coin_value", 5.0);
-                        float ssec = extractJsonFloat(waterChunk, "service_seconds", 120.0);
-                        float en   = extractJsonFloat(waterChunk, "is_enabled", 1.0);
-                        if (val > 0)  waterCoinValue = val;
-                        if (ssec > 0) waterServiceSec = (int)ssec;
-                        isWaterServiceEnabled = (en > 0.5);
+                        float val   = extractJsonFloat(waterChunk, "coin_value", waterCoinValue);
+                        float ssec  = extractJsonFloat(waterChunk, "service_seconds", (float)waterServiceSec);
+                        float en    = extractJsonFloat(waterChunk, "is_enabled", isWaterServiceEnabled ? 1.0 : 0.0);
+                        String wName = extractJsonString(waterChunk, "name", "");
+
+                        if (val > 0 && abs(val - waterCoinValue) > 0.001f) {
+                            waterCoinValue = val;
+                            configChanged = true;
+                        }
+                        if (ssec > 0 && (int)ssec != waterServiceSec) {
+                            waterServiceSec = (int)ssec;
+                            configChanged = true;
+                        }
+                        bool newWEn = (en > 0.5);
+                        if (newWEn != isWaterServiceEnabled) {
+                            isWaterServiceEnabled = newWEn;
+                            configChanged = true;
+                        }
+                        String newR1Name = "";
+                        if (wName.length() > 0) {
+                            newR1Name = wName;
+                        } else if (machineType == "air_blower" || machineType == "tire_air") {
+                            newR1Name = "TIRE AIR";
+                        } else {
+                            newR1Name = "WATER SERVICE";
+                        }
+                        if (newR1Name != relay1ServiceName) {
+                            relay1ServiceName = newR1Name;
+                            configChanged = true;
+                        }
                     }
 
                     int soapPos = responseBody.indexOf("\"soap\"");
+                    if (soapPos == -1) soapPos = responseBody.indexOf("\"blower\"");
                     if (soapPos != -1) {
                         String soapChunk = responseBody.substring(soapPos);
-                        float val  = extractJsonFloat(soapChunk, "coin_value", 5.0);
-                        float ssec = extractJsonFloat(soapChunk, "service_seconds", 120.0);
-                        float en   = extractJsonFloat(soapChunk, "is_enabled", 1.0);
-                        if (val > 0)  soapCoinValue = val;
-                        if (ssec > 0) soapServiceSec = (int)ssec;
-                        isSoapServiceEnabled = (en > 0.5);
+                        float val   = extractJsonFloat(soapChunk, "coin_value", soapCoinValue);
+                        float ssec  = extractJsonFloat(soapChunk, "service_seconds", (float)soapServiceSec);
+                        float en    = extractJsonFloat(soapChunk, "is_enabled", isSoapServiceEnabled ? 1.0 : 0.0);
+                        String sName = extractJsonString(soapChunk, "name", "");
+
+                        if (val > 0 && abs(val - soapCoinValue) > 0.001f) {
+                            soapCoinValue = val;
+                            configChanged = true;
+                        }
+                        if (ssec > 0 && (int)ssec != soapServiceSec) {
+                            soapServiceSec = (int)ssec;
+                            configChanged = true;
+                        }
+                        bool newSEn = (en > 0.5);
+                        if (newSEn != isSoapServiceEnabled) {
+                            isSoapServiceEnabled = newSEn;
+                            configChanged = true;
+                        }
+                        String newR2Name = "";
+                        if (sName.length() > 0) {
+                            newR2Name = sName;
+                        } else if (machineType == "air_blower") {
+                            newR2Name = "CAR BLOWER";
+                        } else {
+                            newR2Name = "SOAP SERVICE";
+                        }
+                        if (newR2Name != relay2ServiceName) {
+                            relay2ServiceName = newR2Name;
+                            configChanged = true;
+                        }
                     }
 
                     int lcdPos = responseBody.indexOf("\"lcd_custom\"");
@@ -783,11 +1530,54 @@ void networkWorkerTask(void *pvParameters) {
                             customLcdLine3 = l3;
                             customLcdLine4 = l4;
                             lcdNeedsRefresh = true;
+                            configChanged = true;
+                        }
+                    }
+
+                    // 💾 Persist to NVS if any machine rate, time, profile, or LCD customized lines changed
+                    if (configChanged) {
+                        saveServiceConfigToNVS();
+                    }
+
+                    // ⚡ Check for Wireless OTA Firmware Update
+                    int otaPos = responseBody.indexOf("\"ota_update\"");
+                    if (otaPos != -1) {
+                        String otaChunk = responseBody.substring(otaPos);
+                        if (otaChunk.indexOf("\"available\":true") != -1) {
+                            String targetVer   = extractJsonString(otaChunk, "target_version", "");
+                            String downloadUrl = extractJsonString(otaChunk, "download_url", "");
+
+                            if (targetVer.length() > 0 && downloadUrl.length() > 0 && targetVer != String(FIRMWARE_VERSION)) {
+                                Serial.print(F("⚡ [OTA] Pending Update: v"));
+                                Serial.print(targetVer);
+                                Serial.print(F(" | URL: "));
+                                Serial.println(downloadUrl);
+
+                                // Safety Check: Machine must be idle (no active service, no credit, no recovery mode)
+                                if (!activeServiceRunning && currentCredit <= 0.01 && !recoveryModeActive) {
+                                    Serial.println(F("⚡ [OTA] Machine is idle. Starting Over-The-Air Update..."));
+                                    http.end();
+                                    performOtaUpdate(downloadUrl, targetVer);
+                                    return; // performOtaUpdate reboots upon completion
+                                } else {
+                                    Serial.println(F("⏳ [OTA] Machine is vending or has credit. Postponing update until idle."));
+                                }
+                            }
                         }
                     }
                 } else {
+                    if (httpResponseCode == 401 || httpResponseCode == 404) {
+                        Serial.println(F("⚠️ [AUTH] Device token or identity rejected by server. Refreshing enrollment..."));
+                        isDeviceEnrolled = false;
+                        configApiToken = "";
+                        nvsConfig.begin("vlcfg", false);
+                        nvsConfig.remove("token");
+                        nvsConfig.putBool("enrolled", false);
+                        nvsConfig.end();
+                    }
+
                     if (isServerOnline || !serverStateLogged) {
-                        isServerOnline = false;
+                        isServerOnline    = false;
                         serverStateLogged = true;
                         Serial.println(F("----------------------------------------"));
                         Serial.print(F("🌐 [NET] Server unreachable: "));
@@ -815,15 +1605,17 @@ void networkWorkerTask(void *pvParameters) {
                         Serial.print(rec.clientTxId);
                         Serial.println(F("..."));
 
+                        WiFiClientSecure secClient;
+                        WiFiClient plainClient;
                         HTTPClient http;
-                        http.begin(SERVER_COIN_URL);
+                        setupHttpConnection(http, buildEndpointUrl("/machine/coin.php"), secClient, plainClient);
                         http.addHeader("Content-Type", "application/json");
-                        http.addHeader("X-Machine-Token", MACHINE_API_TOKEN);
-                        http.setTimeout(2000);
+                        http.addHeader("X-Machine-Token", configApiToken.c_str());
+                        http.setTimeout(4000);
 
                         String statusStr = (rec.status == TX_INCOMPLETE || rec.status == TX_CANCELLED) ? "incomplete" : "completed";
                         String jsonPayload = "{";
-                        jsonPayload += "\"machine_key\":\"" + String(MACHINE_KEY) + "\",";
+                        jsonPayload += "\"machine_key\":\"" + configMachineKey + "\",";
                         jsonPayload += "\"service_key\":\"" + String(rec.serviceKey) + "\",";
                         jsonPayload += "\"amount\":" + String(rec.amount, 2) + ",";
                         jsonPayload += "\"duration_seconds\":" + String(rec.durationSeconds) + ",";
@@ -877,16 +1669,18 @@ void networkWorkerTask(void *pvParameters) {
                 Serial.print(F("[NET:TankAlert] Starting request for "));
                 Serial.println(tKey);
 
+                WiFiClientSecure secClient;
+                WiFiClient plainClient;
                 HTTPClient http;
-                http.begin(SERVER_TANK_URL);
+                setupHttpConnection(http, buildEndpointUrl("/machine/tank.php"), secClient, plainClient);
                 http.addHeader("Content-Type", "application/json");
-                http.addHeader("X-Machine-Token", MACHINE_API_TOKEN);
-                http.setTimeout(1500);
+                http.addHeader("X-Machine-Token", configApiToken.c_str());
+                http.setTimeout(3000);
 
-                String jsonBody = "{\"machine_key\":\"" + String(MACHINE_KEY) +
+                String jsonBody = "{\"machine_key\":\"" + configMachineKey +
                                   "\",\"tank_key\":\"" + tKey +
                                   "\",\"status\":\"" + sStr +
-                                  "\",\"api_token\":\"" + String(MACHINE_API_TOKEN) + "\"}";
+                                  "\",\"api_token\":\"" + configApiToken + "\"}";
 
                 int httpCode = http.POST(jsonBody);
                 unsigned long elapsedMs = millis() - startMs;
@@ -905,6 +1699,12 @@ void networkWorkerTask(void *pvParameters) {
 // Tank Floater Sensors (Runs on Core 1)
 // ============================================================
 void checkTankSensors() {
+    // Air/Blower machines do not have tank floaters; bypass floater alerts
+    if (machineType != "carwash") {
+        updateCoinSlotPower();
+        return;
+    }
+
     int currentWater = digitalRead(WATER_FLOATER_PIN);
     int currentSoap  = digitalRead(SOAP_FLOATER_PIN);
 
@@ -971,18 +1771,26 @@ void runPreStartCountdown() {
     printLCDLine(2, "       00:00        ");
     delay(200);
 
-    if (lcd) lcd->clear();
+    clearLCD();
 }
 
 // ============================================================
 // Service Availability & Coin Slot Power Control (Runs on Core 1)
 // ============================================================
 bool isWaterAvailable() {
+    // Air/Blower / Solo Inflator: No water tank or floater required!
+    if (machineType != "carwash") {
+        return isWaterServiceEnabled;
+    }
     bool waterTankOk = (digitalRead(WATER_FLOATER_PIN) != LOW);
     return (waterTankOk && isWaterServiceEnabled);
 }
 
 bool isSoapAvailable() {
+    // Air/Blower: Relay 2 (Blower) is independent and requires no floater!
+    if (machineType != "carwash") {
+        return isSoapServiceEnabled;
+    }
     if (!isWaterAvailable()) return false;
     bool soapTankOk = (digitalRead(SOAP_FLOATER_PIN) != LOW);
     return (soapTankOk && isSoapServiceEnabled);
@@ -998,7 +1806,9 @@ void updateCoinSlotPower() {
         return;
     }
 
-    bool waterAvail = isWaterAvailable();
+    bool serviceAvail = (machineType != "carwash")
+        ? (isWaterServiceEnabled || isSoapServiceEnabled)
+        : isWaterAvailable();
 
     if (currentCredit >= CREDIT_CUTOFF_LIMIT) {
         if (!creditCutoffActive) {
@@ -1012,7 +1822,7 @@ void updateCoinSlotPower() {
         }
     }
 
-    bool shouldBePowered = (waterAvail && !creditCutoffActive);
+    bool shouldBePowered = (serviceAvail && !creditCutoffActive);
     if (shouldBePowered == coinSlotPowered) return;
 
     if (shouldBePowered) {
@@ -1022,8 +1832,8 @@ void updateCoinSlotPower() {
     } else {
         digitalWrite(COIN_POWER_RELAY_PIN, COIN_RELAY_POWER_OFF);
         coinSlotPowered = false;
-        if (!waterAvail) {
-            Serial.println(F("🔌 [HW-482 GPIO 14] Relay ON (NC Opened) -> Coin Slot CUT OFF (Water Low / Disabled)."));
+        if (!serviceAvail) {
+            Serial.println(F("🔌 [HW-482 GPIO 14] Relay ON (NC Opened) -> Coin Slot CUT OFF (Services Disabled/Tank Empty)."));
             playBeep(200, 2);
         } else if (creditCutoffActive) {
             Serial.println(F("🔌 [HW-482 GPIO 14] Relay ON (NC Opened) -> Coin Slot CUT OFF (Max ₱50 Credit Reached)."));
@@ -1067,22 +1877,67 @@ uint8_t scanI2CAddress() {
     return LCD_I2C_ADDR;
 }
 
-void printLCDLine(int row, String text) {
+// Cache for the 4 LCD lines to prevent redundant I2C transmission
+static String cachedLcdLines[4] = {"", "", "", ""};
+
+void clearLCD() {
     if (!lcd) return;
-    lcd->setCursor(0, row);
+    if (xPortGetCoreID() != 1) {
+        lcdNeedsRefresh = true;
+        return;
+    }
+    for (int i = 0; i < 4; i++) {
+        cachedLcdLines[i] = "";
+    }
+    lcd->clear();
+}
+
+void printLCDLine(int row, String text) {
+    if (!lcd || row < 0 || row > 3) return;
+
+    // Strict multi-core concurrency defense: LCD/I2C hardware is exclusively owned by Core 1.
+    // Any attempt from Core 0 or an ISR will simply set the refresh flag and return safely.
+    if (xPortGetCoreID() != 1) {
+        lcdNeedsRefresh = true;
+        return;
+    }
+
     while (text.length() < 20) {
         text += " ";
     }
     if (text.length() > 20) {
         text = text.substring(0, 20);
     }
+
+    // Skip redundant I2C transmission if this row's content hasn't changed
+    if (cachedLcdLines[row] == text) {
+        return;
+    }
+
+    cachedLcdLines[row] = text;
+    lcd->setCursor(0, row);
     lcd->print(text);
 }
 
 void updateLCDDisplay() {
     if (!lcd || activeServiceRunning || completionScreenActive || recoveryModeActive) return;
 
+    // Concurrency defense: Only Core 1 executes LCD updates
+    if (xPortGetCoreID() != 1) {
+        lcdNeedsRefresh = true;
+        return;
+    }
+
     lastWarningBeepSec = -1;
+
+    // 0. Captive Portal Setup Screen: Display credentials when AP mode is active and no credit is queued
+    if (apModeActive && currentCredit <= 0.0) {
+        printLCDLine(0, "== VendoLink Setup ==");
+        printLCDLine(1, getApSSID());
+        printLCDLine(2, "Pass: " + String(AP_DEFAULT_PASS));
+        printLCDLine(3, "IP: 192.168.4.1");
+        return;
+    }
 
     bool isWaterEmpty = (digitalRead(WATER_FLOATER_PIN) == LOW);
     bool isSoapEmpty  = (digitalRead(SOAP_FLOATER_PIN)  == LOW);
@@ -1090,6 +1945,35 @@ void updateLCDDisplay() {
     bool soapAvail    = isSoapAvailable();
 
     printLCDLine(0, customLcdLine1);
+
+    // Multi-Profile Handling for Tire Air & Blower or Solo Tire Inflator (No floater alerts)
+    if (machineType != "carwash") {
+        if (!isWaterServiceEnabled && !isSoapServiceEnabled) {
+            printLCDLine(1, "SERVICES DISABLED!");
+            printLCDLine(2, "UNDER MAINTENANCE");
+            printLCDLine(3, "COIN SLOT: DISABLED");
+        } else if (currentCredit > 0.0) {
+            String creditStr = "CREDIT: P" + String((int)currentCredit) + ".00";
+            printLCDLine(1, creditStr);
+            if (isWaterServiceEnabled && isSoapServiceEnabled) {
+                printLCDLine(2, "PRESS BUTTON 1 OR 2");
+            } else if (isWaterServiceEnabled) {
+                printLCDLine(2, "PRESS START BUTTON");
+            } else {
+                printLCDLine(2, "PRESS BUTTON 2");
+            }
+            if (creditCutoffActive || currentCredit >= CREDIT_CUTOFF_LIMIT) {
+                printLCDLine(3, "MAX CREDIT REACHED!");
+            } else {
+                printLCDLine(3, customLcdLine4);
+            }
+        } else {
+            printLCDLine(1, customLcdLine2);
+            printLCDLine(2, customLcdLine3);
+            printLCDLine(3, customLcdLine4);
+        }
+        return;
+    }
 
     if (!waterAvail && isSoapEmpty) {
         printLCDLine(1, "WATER & SOAP EMPTY!");
@@ -1171,6 +2055,34 @@ void showInterruptedSessionScreen(int subPressState = 0) {
 }
 
 // ============================================================
+// 🛠️ Physical Diagnostic Maintenance Screen (Approach 1: 3s Dual Hold)
+// Displays firmware version, connection status, IP, and 7s exit countdown
+// ============================================================
+void triggerDiagnosticScreen() {
+    diagnosticScreenActive = true;
+    diagnosticScreenUntil  = millis() + 7000;
+    lastDiagCountdownSec   = -1;
+    dualBtnHoldStart       = 0;
+
+    playBeep(80, 2);
+    clearLCD();
+
+    printLCDLine(0, "== SYSTEM INFO ==   ");
+
+    String fwStr = "FW: v" + String(FIRMWARE_VERSION) + (isWiFiConnected ? " [ONLINE]" : " [OFFL]");
+    if (fwStr.length() > 20) fwStr = fwStr.substring(0, 20);
+    printLCDLine(1, fwStr);
+
+    String ipStr = isWiFiConnected ? ("IP: " + WiFi.localIP().toString()) : "IP: NO WI-FI";
+    if (ipStr.length() > 20) ipStr = ipStr.substring(0, 20);
+    printLCDLine(2, ipStr);
+
+    printLCDLine(3, "EXIT IN 7s (OR COIN)");
+
+    Serial.println(F("🛠️ [MAINTENANCE] Physical Diagnostic Screen displayed (3s dual hold)."));
+}
+
+// ============================================================
 // Coin Processing Logic (Runs on Core 1)
 // ============================================================
 void processCoinPulses(int pulses) {
@@ -1178,6 +2090,13 @@ void processCoinPulses(int pulses) {
     if (recoveryModeActive) {
         Serial.println(F("⚠️ [Coin Slot] Coin rejected — Interrupted session recovery pending."));
         return;
+    }
+
+    // Instant Dismissal: If diagnostic maintenance screen is showing, return to normal display immediately
+    if (diagnosticScreenActive) {
+        diagnosticScreenActive = false;
+        dualBtnHoldStart = 0;
+        updateLCDDisplay();
     }
 
     float addedAmount = 0.0;
@@ -1258,42 +2177,28 @@ void handleServiceButtonPress(String serviceKeyName, int relayPin, float service
 
     playBeep(80, 1);
 
-    // 2. Water Availability Check
+    // 2. Service 1 (Water / Tire Air) Availability Check
     if (serviceKeyName == "water" && !isWaterAvailable()) {
-        Serial.println(F("❌ [Service] Water service UNAVAILABLE!"));
+        Serial.println(F("❌ [Service 1] Service UNAVAILABLE!"));
         playBeep(120, 3);
-        printLCDLine(2, "WATER UNAVAILABLE!");
+        printLCDLine(2, (machineType == "carwash") ? "WATER UNAVAILABLE!" : "SERVICE DISABLED!");
         delay(2000);
         updateLCDDisplay();
         return;
     }
 
-    // 3. Soap Availability Check
-    if (serviceKeyName == "soap") {
-        if (!isWaterAvailable()) {
-            Serial.println(F("❌ [Service] Soap blocked — Water unavailable!"));
-            playBeep(120, 3);
-            printLCDLine(2, "WATER UNAVAILABLE!");
-            delay(2000);
-            updateLCDDisplay();
-            return;
+    // 3. Service 2 (Soap / Car Blower) Availability Check
+    if (serviceKeyName == "soap" && !isSoapAvailable()) {
+        Serial.println(F("❌ [Service 2] Service UNAVAILABLE!"));
+        playBeep(120, 3);
+        if (machineType == "carwash") {
+            printLCDLine(2, (digitalRead(SOAP_FLOATER_PIN) == LOW) ? "SOAP TANK EMPTY!" : "SOAP UNAVAILABLE!");
+        } else {
+            printLCDLine(2, "SERVICE DISABLED!");
         }
-        if (digitalRead(SOAP_FLOATER_PIN) == LOW) {
-            Serial.println(F("❌ [Service] Soap tank EMPTY!"));
-            playBeep(120, 3);
-            printLCDLine(2, "SOAP TANK EMPTY!");
-            delay(2000);
-            updateLCDDisplay();
-            return;
-        }
-        if (!isSoapServiceEnabled) {
-            Serial.println(F("❌ [Service] Soap service DISABLED!"));
-            playBeep(120, 3);
-            printLCDLine(2, "SOAP DISABLED!");
-            delay(2000);
-            updateLCDDisplay();
-            return;
-        }
+        delay(2000);
+        updateLCDDisplay();
+        return;
     }
 
     // 4. Check Credit
@@ -1306,8 +2211,8 @@ void handleServiceButtonPress(String serviceKeyName, int relayPin, float service
         playBeep(200, 1);
         printLCDLine(0, customLcdLine1);
         printLCDLine(1, "INSERT COIN FIRST");
-        printLCDLine(2, "WATER: P" + String((int)waterCoinValue));
-        printLCDLine(3, "SOAP: P" + String((int)soapCoinValue));
+        printLCDLine(2, relay1ServiceName + ": P" + String((int)waterCoinValue));
+        printLCDLine(3, relay2ServiceName + ": P" + String((int)soapCoinValue));
         delay(2000);
         updateLCDDisplay();
         return;
@@ -1319,7 +2224,7 @@ void handleServiceButtonPress(String serviceKeyName, int relayPin, float service
     savePersistentCredit(currentCredit);
     updateCoinSlotPower();
 
-    if (durationSeconds <= 0) durationSeconds = 120;
+    if (durationSeconds <= 0) durationSeconds = (serviceKeyName == "soap") ? 60 : 120;
     serviceDurationMs = (unsigned long)durationSeconds * 1000;
     lastWarningBeepSec = -1;
 
@@ -1334,10 +2239,12 @@ void handleServiceButtonPress(String serviceKeyName, int relayPin, float service
     snprintf(newTxId, sizeof(newTxId), "VL-%s-%05u", macBuf, (unsigned int)(millis() % 100000));
     currentSessionTxId = String(newTxId);
 
+    String currentDisplayName = (serviceKeyName == "water") ? relay1ServiceName : relay2ServiceName;
+
     // ⚡ Persist Active Session in NVS before relay activation
     saveActiveSession(
         serviceKeyName.c_str(),
-        (serviceKeyName == "water") ? "WATER SERVICE" : "SOAP SERVICE",
+        currentDisplayName.c_str(),
         serviceCost,
         currentCredit,
         durationSeconds,
@@ -1362,7 +2269,7 @@ void handleServiceButtonPress(String serviceKeyName, int relayPin, float service
     isServicePaused      = false;
     pauseUsed            = false;
     resumeUsed           = false;
-    activeServiceName    = (serviceKeyName == "water") ? "WATER SERVICE" : "SOAP SERVICE";
+    activeServiceName    = currentDisplayName;
     activeServiceKey     = serviceKeyName;
     activeRelayPin       = relayPin;
     serviceStartTime     = millis();
@@ -1593,13 +2500,18 @@ void setup() {
     Serial.begin(115200);
     delay(200);
 
+    loadDeviceConfig();
+    loadServiceConfigFromNVS();
+
     Serial.println();
     Serial.println(F("========================================"));
     Serial.println(F("       VendoLink ESP32 Controller       "));
-    Serial.println(F("   Power-Recovery Dual-Core v2.8.1      "));
-    Serial.print(F("   Target Server: ")); Serial.println(VENDOLINK_SERVER);
-    Serial.print(F("   Wi-Fi SSID:    ")); Serial.println(WIFI_SSID);
-    Serial.print(F("   API Token:     ")); Serial.println(maskSecret(MACHINE_API_TOKEN));
+    Serial.print(F("   Universal Dual-Core v")); Serial.println(FIRMWARE_VERSION);
+    Serial.print(F("   Hardware MAC:  ")); Serial.println(getDeviceMac());
+    Serial.print(F("   Target Server: ")); Serial.println(configServerUrl);
+    Serial.print(F("   Wi-Fi SSID:    ")); Serial.println(configWifiSsid.length() > 0 ? configWifiSsid : String(F("[AP SETUP REQUIRED]")));
+    Serial.print(F("   API Token:     ")); Serial.println(maskSecret(configApiToken.c_str()));
+    Serial.print(F("   Enrollment:    ")); Serial.println(isDeviceEnrolled ? F("ENROLLED") : F("PENDING ENROLLMENT"));
     Serial.println(F("========================================"));
 
     // Step 1: Initialize Mutex & GPIOs
@@ -1616,6 +2528,54 @@ void setup() {
 
     pinMode(WATER_BUTTON_PIN, INPUT_PULLUP);
     pinMode(SOAP_BUTTON_PIN, INPUT_PULLUP);
+
+    // Hardware Reset Check: If Water Button (D15) is held down during boot, clear NVS network & service config
+    if (digitalRead(WATER_BUTTON_PIN) == LOW) {
+        delay(600);
+        if (digitalRead(WATER_BUTTON_PIN) == LOW) {
+            Serial.println(F("⚠️ [RESET] Water button held at startup! Clearing NVS credentials & restoring defaults..."));
+            nvsConfig.begin("vlcfg", false);
+            nvsConfig.remove("ssid");
+            nvsConfig.remove("pass");
+            nvsConfig.remove("server");
+            nvsConfig.remove("token");
+            nvsConfig.putBool("enrolled", false);
+            nvsConfig.end();
+
+            Preferences nvsSvcReset;
+            nvsSvcReset.begin("vlsvc", false);
+            nvsSvcReset.clear();
+            nvsSvcReset.end();
+
+            configWifiSsid        = "";
+            configWifiPass        = "";
+            configServerUrl       = DEFAULT_VENDOLINK_SERVER;
+            configApiToken        = "";
+            isDeviceEnrolled      = false;
+            isConfigured          = false;
+            waterServiceSec       = 120;
+            soapServiceSec        = 60;
+            waterCoinValue        = 5.0;
+            soapCoinValue         = 5.0;
+            isWaterServiceEnabled = true;
+            isSoapServiceEnabled  = true;
+            machineType           = "carwash";
+            relay1ServiceName     = "WATER SERVICE";
+            relay2ServiceName     = "SOAP SERVICE";
+            customLcdLine1        = "== VendoLink v" + String(FIRMWARE_VERSION).substring(0, 3) + " ==";
+            customLcdLine2        = "WELCOME CUSTOMER!";
+            customLcdLine3        = "INSERT COIN FIRST!";
+            customLcdLine4        = "WATER:P5 | SOAP:P5";
+
+            // Beep 3 times to confirm hardware reset
+            for (int b = 0; b < 3; b++) {
+                digitalWrite(BUZZER_PIN, HIGH);
+                delay(80);
+                digitalWrite(BUZZER_PIN, LOW);
+                delay(80);
+            }
+        }
+    }
 
     pinMode(WATER_FLOATER_PIN, INPUT_PULLUP);
     pinMode(SOAP_FLOATER_PIN, INPUT_PULLUP);
@@ -1639,14 +2599,16 @@ void setup() {
 
     // Step 2: Initialize I2C Bus & LCD 2004A
     stepStartMs = millis();
+    delay(50); // Power-on / reboot stabilization delay for I2C bus and PCF8574 backpack
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
     uint8_t detectedAddr = scanI2CAddress();
 
     lcd = new LiquidCrystal_I2C(detectedAddr, LCD_COLS, LCD_ROWS);
     lcd->init();
     lcd->backlight();
-    lcd->clear();
+    clearLCD();
 
+    // Display boot screen on LCD (Owner custom Line 1 displayed immediately)
     printLCDLine(0, customLcdLine1);
     printLCDLine(1, "BOOTING SYSTEM...");
     printLCDLine(2, "INIT HARDWARE...");
@@ -1676,7 +2638,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         networkWorkerTask,
         "NetWorker",
-        8192,
+        20480, // Increased to 20KB to support mbedTLS HTTPS OTA updates without stack overflow
         NULL,
         1,
         &netTaskHandle,
@@ -1712,13 +2674,13 @@ void setup() {
         Serial.println(F("========================================"));
 
         delay(250);
-        if (lcd) lcd->clear();
+        clearLCD();
         showInterruptedSessionScreen(0);
         playBeep(100, 3); // 3 warning beeps to notify customer of power recovery
     } else {
         // Normal Boot: Automatic transition to Ready Screen without button press
         delay(250);
-        if (lcd) lcd->clear();
+        clearLCD();
         updateLCDDisplay();
         playBeep(50, 2);
     }
@@ -1729,6 +2691,12 @@ void setup() {
 }
 
 void loop() {
+    // ⚡ OTA Safety Guard: Freeze Core 1 while Core 0 downloads & flashes firmware
+    if (isOtaUpdating) {
+        delay(50);
+        return;
+    }
+
     unsigned long currentMillis = millis();
 
     // 1. Tank Floater Level Sensors
@@ -1750,6 +2718,57 @@ void loop() {
     // 3. Button Read & Edge Tracking
     int waterBtnState = digitalRead(WATER_BUTTON_PIN);
     int soapBtnState  = digitalRead(SOAP_BUTTON_PIN);
+
+    // ========================================================
+    // 🛠️ HARDWARE DIAGNOSTIC MAINTENANCE SCREEN (ACTIVE)
+    // ========================================================
+    if (diagnosticScreenActive) {
+        if (currentMillis >= diagnosticScreenUntil) {
+            diagnosticScreenActive = false;
+            dualBtnHoldStart       = 0;
+            updateLCDDisplay();
+        } else {
+            int remainingSec = (int)((diagnosticScreenUntil - currentMillis + 999) / 1000);
+            if (remainingSec != lastDiagCountdownSec) {
+                lastDiagCountdownSec = remainingSec;
+                char exitBuf[21];
+                snprintf(exitBuf, sizeof(exitBuf), "EXIT IN %ds (OR COIN)", remainingSec);
+                printLCDLine(3, String(exitBuf));
+            }
+            // Dismiss immediately on single button press
+            if ((waterBtnState == LOW && lastWaterBtnState == HIGH) || (soapBtnState == LOW && lastSoapBtnState == HIGH)) {
+                diagnosticScreenActive = false;
+                dualBtnHoldStart       = 0;
+                playBeep(50, 1);
+                updateLCDDisplay();
+            }
+        }
+        lastWaterBtnState = waterBtnState;
+        lastSoapBtnState  = soapBtnState;
+        delay(5);
+        return;
+    }
+
+    // 🛠️ Physical Diagnostic Trigger Check (Dual 3-Second Hold):
+    // Only available when machine is completely IDLE: No active service, no recovery, and ₱0.00 credit!
+    if (!activeServiceRunning && !recoveryModeActive && currentCredit <= 0.0) {
+        if (waterBtnState == LOW && soapBtnState == LOW) {
+            if (dualBtnHoldStart == 0) {
+                dualBtnHoldStart = currentMillis;
+            } else if (currentMillis - dualBtnHoldStart >= 3000) {
+                triggerDiagnosticScreen();
+                dualBtnHoldStart  = 0;
+                lastWaterBtnState = waterBtnState;
+                lastSoapBtnState  = soapBtnState;
+                delay(5);
+                return;
+            }
+        } else {
+            dualBtnHoldStart = 0;
+        }
+    } else {
+        dualBtnHoldStart = 0;
+    }
 
     // ========================================================
     // ⚡ RECOVERY MODE HANDLING (INTERRUPTED SESSION)
@@ -1846,7 +2865,8 @@ void loop() {
 
                 printLCDLine(0, customLcdLine1);
                 if (isServicePaused) {
-                    String title = (activeServiceKey == "water") ? "WATER PAUSED" : "SOAP PAUSED";
+                    String title = activeServiceName + " PAUSED";
+                    if (title.length() > 20) title = title.substring(0, 20);
                     printLCDLine(1, title);
                     printLCDLine(2, String(timeBuf));
                     printLCDLine(3, "PRESS TO RESUME");

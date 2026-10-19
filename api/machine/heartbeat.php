@@ -56,8 +56,11 @@ $ipAddress       = trim($data['ip_address'] ?? $_SERVER['REMOTE_ADDR'] ?? '');
 $firmwareVersion = trim($data['firmware_version'] ?? '');
 
 // 3. Extract Security Token (Header priority, fallback to body)
-$headers = getallheaders();
-$headerToken = $headers['X-Machine-Token'] ?? $headers['x-machine-token'] ?? '';
+$headers = function_exists('getallheaders') ? getallheaders() : [];
+$headerToken = $headers['X-Machine-Token']
+    ?? $headers['x-machine-token']
+    ?? $_SERVER['HTTP_X_MACHINE_TOKEN']
+    ?? '';
 $token = !empty($headerToken) ? trim($headerToken) : trim($data['api_token'] ?? '');
 
 // 4. Validate Mandatory Fields
@@ -155,7 +158,34 @@ $services = $db->query(
     [':mid' => $machine['id']]
 )->fetchAll();
 
-// 9. Return Successful Telemetry Response
+// 9. Check for Pending Wireless OTA Firmware Update
+require_once ROOT_PATH . '/models/AdminDashboard.php';
+$dashModel = new AdminDashboard();
+$currentFw = !empty($firmwareVersion) ? $firmwareVersion : ($machine['firmware_version'] ?? '3.0.0');
+$pendingOta = $dashModel->checkPendingOta((int)$machine['id'], !empty($machine['owner_id']) ? (int)$machine['owner_id'] : null, $currentFw);
+
+$otaPayload = null;
+if ($pendingOta) {
+    $otaPayload = [
+        'available'      => true,
+        'deployment_id'  => (int)$pendingOta['deployment_id'],
+        'target_version' => $pendingOta['version'],
+        'download_url'   => BASE_URL . '/uploads/firmware/' . rawurlencode($pendingOta['filename']),
+        'filesize'       => (int)$pendingOta['filesize'],
+        'changelog'      => $pendingOta['changelog'] ?? ''
+    ];
+}
+
+// 10. Return Successful Telemetry Response
+$mName = trim($machine['name'] ?? $machine['machine_code'] ?? 'Vendo Machine');
+$cleanName = strtoupper(preg_replace('/[^a-zA-Z0-9\s]/', '', $mName));
+$cleanName = trim(substr($cleanName, 0, 14));
+$defaultLine1 = '== ' . $cleanName . ' ==';
+
+$line1 = (!empty($machine['lcd_line1']) && $machine['lcd_line1'] !== '== VendoLink v2.2 ==' && $machine['lcd_line1'] !== '== VendoLink v3.0 ==')
+    ? $machine['lcd_line1']
+    : $defaultLine1;
+
 http_response_code(200);
 $now = date('Y-m-d H:i:s');
 echo json_encode([
@@ -164,16 +194,18 @@ echo json_encode([
     'machine_key'      => $machineKey,
     'machine_code'     => $machine['machine_code'],
     'display_name'     => $machine['name'] ?? $machine['machine_code'],
+    'machine_type'     => $machine['machine_type'] ?? 'carwash',
     'status'           => $status,
     'ip_address'       => $ipAddress,
-    'firmware_version' => $firmwareVersion ?: ($machine['firmware_version'] ?? '1.0.0'),
+    'firmware_version' => $currentFw,
     'last_seen'        => $now,
     'server_time'      => $now,
     'lcd_custom'       => [
-        'line1' => $machine['lcd_line1'] ?? '== VendoLink v2.2 ==',
-        'line2' => $machine['lcd_line2'] ?? 'WELCOME CUSTOMER!',
-        'line3' => $machine['lcd_line3'] ?? 'INSERT COIN FIRST!',
-        'line4' => $machine['lcd_line4'] ?? 'WATER:P5 | SOAP:P5',
+        'line1' => $line1,
+        'line2' => !empty($machine['lcd_line2']) ? $machine['lcd_line2'] : 'WELCOME CUSTOMER!',
+        'line3' => !empty($machine['lcd_line3']) ? $machine['lcd_line3'] : 'INSERT COIN FIRST!',
+        'line4' => !empty($machine['lcd_line4']) ? $machine['lcd_line4'] : 'WATER:P5 | SOAP:P5',
     ],
-    'services'         => $services
-]);
+    'services'         => $services,
+    'ota_update'       => $otaPayload
+], JSON_UNESCAPED_SLASHES);

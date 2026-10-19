@@ -45,30 +45,46 @@ class MaintenanceController
             error_log('[VendoLink][Maintenance] ' . $e->getMessage());
             flash('danger', 'Could not save the maintenance change.');
         }
-        redirect('dashboard/maintenance.php');
+        $pageParam = filter_input(INPUT_POST, 'page', FILTER_VALIDATE_INT);
+        $redirectUrl = 'dashboard/maintenance.php';
+        if ($action !== 'add' && $pageParam && $pageParam > 1) {
+            $redirectUrl .= '?page=' . $pageParam;
+        }
+        redirect($redirectUrl);
     }
 
     private function add(Maintenance $maintenance): void
     {
         $name = trim($_POST['name'] ?? '');
         $type = $_POST['reminder_type'] ?? '';
-        $date = $_POST['last_completed_date'] ?? '';
-        $serviceId = filter_input(INPUT_POST, 'service_id', FILTER_VALIDATE_INT) ?: null;
-        $calendarValue = filter_input(INPUT_POST, 'calendar_interval_value', FILTER_VALIDATE_INT) ?: null;
+        $date = trim($_POST['last_completed_date'] ?? '');
+        if ($date === '') {
+            $date = date('Y-m-d');
+        }
+        $serviceId = filter_var($_POST['service_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
+        $calendarValue = filter_var($_POST['calendar_interval_value'] ?? null, FILTER_VALIDATE_INT) ?: null;
         $calendarUnit = $_POST['calendar_interval_unit'] ?? null;
-        $runtimeMinutes = filter_input(INPUT_POST, 'runtime_interval_minutes', FILTER_VALIDATE_INT) ?: null;
+        $runtimeMinutes = filter_var($_POST['runtime_interval_minutes'] ?? null, FILTER_VALIDATE_INT) ?: null;
 
         if (mb_strlen($name) < 2 || mb_strlen($name) > 120) throw new InvalidArgumentException('Enter a maintenance name from 2 to 120 characters.');
         if (!in_array($type, ['calendar', 'runtime', 'both'], true)) throw new InvalidArgumentException('Choose a valid reminder type.');
         $lastDate = DateTime::createFromFormat('Y-m-d', $date);
         if (!$lastDate || $lastDate->format('Y-m-d') !== $date) throw new InvalidArgumentException('Choose a valid last maintenance date.');
-        if (in_array($type, ['calendar', 'both'], true) && (!$calendarValue || !in_array($calendarUnit, ['days', 'weeks', 'months', 'years'], true))) throw new InvalidArgumentException('Set a valid calendar interval.');
-        if (in_array($type, ['runtime', 'both'], true) && (!$runtimeMinutes || $runtimeMinutes < 1)) throw new InvalidArgumentException('Set a runtime interval in minutes.');
+        if (in_array($type, ['calendar', 'both'], true) && (!$calendarValue || $calendarValue < 1 || !in_array($calendarUnit, ['days', 'weeks', 'months', 'years'], true))) throw new InvalidArgumentException('Set a valid calendar interval (at least 1).');
+        if (in_array($type, ['runtime', 'both'], true) && (!$runtimeMinutes || $runtimeMinutes < 1)) throw new InvalidArgumentException('Set a runtime interval in minutes (at least 1).');
 
         $ownerId = current_owner_id();
 
+        // Enforce maximum 50 active reminders per machine
+        $activeCount = $maintenance->countActive($ownerId);
+        if ($activeCount >= Maintenance::MAX_ACTIVE_REMINDERS) {
+            throw new InvalidArgumentException(
+                'Maximum active reminder limit reached (' . Maintenance::MAX_ACTIVE_REMINDERS . ' active reminders per machine). Please delete or disable an existing reminder before adding a new one.'
+            );
+        }
+
         $maintenance->add([
-            'name' => $name, 'type' => $type, 'service_id' => $serviceId, 'enabled' => isset($_POST['is_enabled']) ? 1 : 0,
+            'name' => $name, 'type' => $type, 'service_id' => $serviceId, 'enabled' => isset($_POST['is_enabled']) ? (int)!empty($_POST['is_enabled']) : 1,
             'last_completed' => $lastDate->format('Y-m-d 00:00:00'), 'calendar_value' => in_array($type, ['calendar', 'both'], true) ? $calendarValue : null,
             'calendar_unit' => in_array($type, ['calendar', 'both'], true) ? $calendarUnit : null,
             'runtime_interval' => in_array($type, ['runtime', 'both'], true) ? $runtimeMinutes * 60 : null,
@@ -79,18 +95,21 @@ class MaintenanceController
     {
         $name = trim($_POST['name'] ?? '');
         $type = $_POST['reminder_type'] ?? '';
-        $date = $_POST['last_completed_date'] ?? '';
-        $serviceId = filter_input(INPUT_POST, 'service_id', FILTER_VALIDATE_INT) ?: null;
-        $calendarValue = filter_input(INPUT_POST, 'calendar_interval_value', FILTER_VALIDATE_INT) ?: null;
+        $date = trim($_POST['last_completed_date'] ?? '');
+        if ($date === '') {
+            $date = date('Y-m-d');
+        }
+        $serviceId = filter_var($_POST['service_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
+        $calendarValue = filter_var($_POST['calendar_interval_value'] ?? null, FILTER_VALIDATE_INT) ?: null;
         $calendarUnit = $_POST['calendar_interval_unit'] ?? null;
-        $runtimeMinutes = filter_input(INPUT_POST, 'runtime_interval_minutes', FILTER_VALIDATE_INT) ?: null;
+        $runtimeMinutes = filter_var($_POST['runtime_interval_minutes'] ?? null, FILTER_VALIDATE_INT) ?: null;
 
         if (mb_strlen($name) < 2 || mb_strlen($name) > 120) throw new InvalidArgumentException('Enter a maintenance name from 2 to 120 characters.');
         if (!in_array($type, ['calendar', 'runtime', 'both'], true)) throw new InvalidArgumentException('Choose a valid reminder type.');
         $lastDate = DateTime::createFromFormat('Y-m-d', $date);
         if (!$lastDate || $lastDate->format('Y-m-d') !== $date) throw new InvalidArgumentException('Choose a valid last maintenance date.');
-        if (in_array($type, ['calendar', 'both'], true) && (!$calendarValue || !in_array($calendarUnit, ['days', 'weeks', 'months', 'years'], true))) throw new InvalidArgumentException('Set a valid calendar interval.');
-        if (in_array($type, ['runtime', 'both'], true) && (!$runtimeMinutes || $runtimeMinutes < 1)) throw new InvalidArgumentException('Set a runtime interval in minutes.');
+        if (in_array($type, ['calendar', 'both'], true) && (!$calendarValue || $calendarValue < 1 || !in_array($calendarUnit, ['days', 'weeks', 'months', 'years'], true))) throw new InvalidArgumentException('Set a valid calendar interval (at least 1).');
+        if (in_array($type, ['runtime', 'both'], true) && (!$runtimeMinutes || $runtimeMinutes < 1)) throw new InvalidArgumentException('Set a runtime interval in minutes (at least 1).');
 
         $ownerId = current_owner_id();
 

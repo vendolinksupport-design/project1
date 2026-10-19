@@ -39,10 +39,12 @@ if (!function_exists('nav_item')) {
             }
         }
 
+        $iconHtml = lucide_icon($icon, 'sidebar-lucide-icon');
+
         echo <<<HTML
         <li class="nav-item-sidebar">
             <a href="{$href}" class="nav-link-sidebar {$isActive}">
-                <span class="nav-icon"><i class="bi {$icon}"></i></span>
+                <span class="nav-icon">{$iconHtml}</span>
                 <span class="nav-label">{$label}</span>
             </a>
         </li>
@@ -59,16 +61,16 @@ $authUser = current_user();
     <div class="sidebar-header">
         <a href="<?= BASE_URL ?>/admin/dashboard/index.php" class="sidebar-logo">
             <div class="sidebar-logo-icon">
-                <i class="bi bi-shield-lock-fill text-danger"></i>
+                <?= lucide_icon('shield-check', 'text-danger') ?>
             </div>
             <div class="sidebar-logo-text">
                 <span class="sidebar-logo-brand">Vendo<strong>Admin</strong></span>
-                <span class="sidebar-logo-version">Internal</span>
+                <span class="sidebar-logo-version" id="adminSecretVersion" style="cursor:default;" title="VendoLink Admin">Internal</span>
             </div>
         </a>
         <!-- Mobile close button -->
         <button class="sidebar-close d-lg-none" id="sidebarClose" aria-label="Close sidebar">
-            <i class="bi bi-x-lg"></i>
+            <?= lucide_icon('x') ?>
         </button>
     </div>
 
@@ -80,58 +82,75 @@ $authUser = current_user();
         <ul class="nav-list">
             <?php nav_item(
                 BASE_URL . '/admin/dashboard/index.php',
-                'bi-speedometer2',
+                'gauge',
                 term('overview'),
                 'dashboard'
             ); ?>
         </ul>
 
-        <div class="nav-section-label">Platform Management</div>
+        <div class="nav-section-label">Hardware &amp; Machines</div>
         <ul class="nav-list">
             <?php nav_item(
-                BASE_URL . '/admin/customers/index.php',
-                'bi-person-badge-fill',
-                term('customers'),
-                'customers'
-            ); ?>
-            <?php /* Hidden for presentation simplicity
-            nav_item(
                 BASE_URL . '/admin/machines/index.php',
-                'bi-cpu-fill',
+                'cpu',
                 term('machines'),
                 'machines'
-            );
-            */ ?>
-            <?php /* Hidden - Not needed
-            nav_item(
-                BASE_URL . '/admin/ota/index.php',
-                'bi-cloud-arrow-up-fill',
-                'OTA Firmware',
-                'ota'
-            );
-            */ ?>
+            ); ?>
             <?php nav_item(
-                BASE_URL . '/admin/licenses/index.php',
-                'bi-key-fill',
-                term('machine_activation'),
-                'licenses'
+                BASE_URL . '/admin/ota/index.php',
+                'radio',
+                'Wireless Updates (OTA)',
+                'ota'
             ); ?>
         </ul>
 
-        <?php if (has_role(ROLE_ADMIN)): ?>
-        <div class="nav-section-label">System</div>
+        <div class="nav-section-label">Customers &amp; Users</div>
         <ul class="nav-list">
             <?php nav_item(
+                BASE_URL . '/admin/customers/index.php',
+                'users',
+                term('customers'),
+                'customers'
+            ); ?>
+            <?php if (has_role(ROLE_ADMIN)): ?>
+            <?php nav_item(
                 BASE_URL . '/admin/users/index.php',
-                'bi-people-fill',
+                'user-check',
                 term('admin_accounts'),
                 'users'
             ); ?>
+            <?php endif; ?>
         </ul>
-        <?php endif; ?>
 
     </nav>
 
 </aside>
 
 <div class="sidebar-overlay" id="sidebarOverlay"></div>
+<script>
+if (typeof window.BASE_URL === 'undefined') { window.BASE_URL = <?= json_encode(BASE_URL) ?>; }
+(function() {
+    // Secret Founder Triggers to access Pre-Sale Reset (Hidden from presentations)
+    // 1. Triple-click on the "Internal" badge
+    var vEl = document.getElementById('adminSecretVersion');
+    var clicks = 0, timer = null;
+    if (vEl) {
+        vEl.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            clicks++;
+            clearTimeout(timer);
+            timer = setTimeout(function() { clicks = 0; }, 700);
+            if (clicks >= 3) {
+                window.location.href = window.BASE_URL + '/admin/system/reset.php';
+            }
+        });
+    }
+    // 2. Keyboard shortcut: Ctrl + Alt + R
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && e.altKey && (e.key === 'r' || e.key === 'R')) {
+            window.location.href = window.BASE_URL + '/admin/system/reset.php';
+        }
+    });
+})();
+</script>

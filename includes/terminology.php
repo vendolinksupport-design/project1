@@ -37,6 +37,7 @@ define('TERM_OPEN_SUPPORT_REQUESTS',  'Open Support Requests');
 define('TERM_DASHBOARD',              'Dashboard');
 define('TERM_ALERTS',                 'Alerts');
 define('TERM_MAINTENANCE',            'Maintenance');
+define('TERM_SERVICE_REMINDERS',       'Service Reminders');
 define('TERM_HISTORY',                'History');
 define('TERM_TRANSACTION_HISTORY',    'History');
 define('TERM_TRANSACTION_RECORDS',    'Transaction Records');
@@ -59,6 +60,9 @@ define('TERM_WATER_REFILL_ESTIMATE',  'Water Refill Estimate');
 define('TERM_SOAP_REFILL_ESTIMATE',   'Soap Refill Estimate');
 define('TERM_PEAK_USAGE_TIME',        'Peak Usage Time');
 
+define('TERM_MACHINE_CONFIGURATION', 'Machine Configuration');
+define('TERM_CONFIGURATION_HISTORY', 'Configuration History');
+
 // Standard Action Buttons
 define('TERM_BTN_REGISTER_MACHINE',   'Register Machine');
 define('TERM_BTN_ACTIVATE_MACHINE',   'Activate Machine');
@@ -74,6 +78,7 @@ define('TERM_BTN_EDIT',               'Edit');
 define('TERM_BTN_EDIT_CUSTOMER',      'Edit Customer');
 define('TERM_BTN_MANAGE_ACCOUNTS',    'Manage Accounts');
 define('TERM_BTN_VIEW_ACTIVITY',      'View Activity');
+define('TERM_BTN_CONFIGURATION_HISTORY', 'Configuration History');
 define('TERM_BTN_REFRESH_DATA',       'Refresh Data');
 define('TERM_BTN_SAVE_CHANGES',       'Save Changes');
 define('TERM_BTN_CANCEL',             'Cancel');
@@ -82,6 +87,8 @@ define('TERM_BTN_DELETE_MACHINE',     'Delete Machine');
 // Canonical Dictionary Map
 const VENDOLINK_TERMINOLOGY = [
     // Entities & Navigation
+    'machine_configuration'   => TERM_MACHINE_CONFIGURATION,
+    'configuration_history'   => TERM_CONFIGURATION_HISTORY,
     'overview'                => TERM_OVERVIEW,
     'dashboard'               => TERM_DASHBOARD,
     'machines'                => TERM_MACHINES,
@@ -91,6 +98,7 @@ const VENDOLINK_TERMINOLOGY = [
     'customer_support'        => TERM_CUSTOMER_SUPPORT,
     'alerts'                  => TERM_ALERTS,
     'maintenance'             => TERM_MAINTENANCE,
+    'service_reminders'       => TERM_SERVICE_REMINDERS,
     'history'                 => TERM_HISTORY,
     'transaction_history'     => TERM_TRANSACTION_HISTORY,
     'archive'                 => TERM_TRANSACTION_HISTORY,

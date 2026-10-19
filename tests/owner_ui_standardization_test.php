@@ -85,15 +85,16 @@ echo "\n4. Checking Dashboard Simplification & Standardization...\n";
 $cardsHtml = file_get_contents(ROOT_PATH . '/views/dashboard/cards.php');
 assert_test(strpos($cardsHtml, "Maintenance due") !== false, "Dashboard contains compact Maintenance due / No maintenance due");
 assert_test(strpos($cardsHtml, "term('view_maintenance', 'View Maintenance')") !== false, "Dashboard uses View Maintenance button");
-assert_test(strpos($cardsHtml, "term('todays_sales', \"Today's Sales\")") !== false, "Today's sales chart is titled Today's Sales");
+assert_test(strpos($cardsHtml, "term('todays_sales', \"Today's Sales\")") !== false, "Today's sales KPI uses standard terminology");
+assert_test(strpos($cardsHtml, "id=\"dashboardTodaySalesChart\"") === false, "Redundant hourly sales chart removed from dashboard cards");
 assert_test(strpos($cardsHtml, "term('vendoai_insights', 'VendoAI Insights')") !== false, "VendoAI section titled VendoAI Insights");
 assert_test(strpos($cardsHtml, "term('estimated_monthly_sales', 'Estimated Monthly Sales')") !== false, "AI metric: Estimated Monthly Sales");
 assert_test(strpos($cardsHtml, "term('water_refill_estimate', 'Water Refill Estimate')") !== false, "AI metric: Water Refill Estimate");
 assert_test(strpos($cardsHtml, "term('soap_refill_estimate', 'Soap Refill Estimate')") !== false, "AI metric: Soap Refill Estimate");
 assert_test(strpos($cardsHtml, "term('peak_usage_time', 'Peak Usage Time')") !== false, "AI metric: Peak Usage Time");
-assert_test(strpos($cardsHtml, "term('open_vendoai', 'Open VendoAI')") !== false, "Action button: Open VendoAI");
+assert_test(strpos($cardsHtml, "term('open_vendoai', 'Open VendoAI')") === false, "Stealth Mode: Open VendoAI button removed from dashboard cards");
 assert_test(strpos($cardsHtml, "term('view_machine', 'View Machine')") !== false, "Action button: View Machine");
-assert_test(strpos($cardsHtml, "term('view_history', 'View History')") !== false, "Action button: View History");
+assert_test(strpos($cardsHtml, "term('view_history', 'View History')") !== false || strpos($cardsHtml, "term('view_more', 'View More')") !== false, "Action button: View History / View More");
 // Redundant metrics strip removed
 assert_test(strpos($cardsHtml, "<!-- Quick Metrics Strip -->") === false, "Redundant quick metrics strip under chart is removed");
 

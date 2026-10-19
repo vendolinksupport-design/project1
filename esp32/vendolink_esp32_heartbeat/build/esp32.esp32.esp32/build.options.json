@@ -1,10 +1,9 @@
 {
-  "additionalFiles": "..\\..\\..,..\\..,..\\..,..\\..,..\\..",
-  "builtInLibrariesFolders": "C:\\Users\\KAL EL\\AppData\\Local\\Arduino15\\libraries",
+  "additionalFiles": "..\\..\\..,..\\..",
   "compiler.optimization_flags": "-Os",
   "customBuildProperties": "",
-  "fqbn": "esp32:esp32:esp32:UploadSpeed=921600,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default",
-  "hardwareFolders": "C:\\Users\\KAL EL\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.11,C:\\Users\\KAL EL\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.11",
-  "otherLibrariesFolders": "c:\\Users\\KAL EL\\Documents\\Arduino\\libraries",
+  "fqbn": "esp32:esp32:esp32",
+  "hardwareFolders": "C:\\Users\\khiru25\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12,C:\\Users\\khiru25\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12",
+  "otherLibrariesFolders": "C:\\Users\\khiru25\\Documents\\Arduino\\libraries",
   "sketchLocation": "C:\\xampp\\htdocs\\vendolink_claude_v1\\esp32\\vendolink_esp32_heartbeat"
 }

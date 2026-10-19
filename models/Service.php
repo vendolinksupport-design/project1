@@ -12,7 +12,7 @@ class Service
         $this->db = Database::getInstance();
     }
 
-    public function updateConfiguration(int $serviceId, bool $isEnabled, float $coinValue, int $serviceSeconds, ?int $userId = null): bool
+    public function updateConfiguration(int $serviceId, bool $isEnabled, float $coinValue, int $serviceSeconds, ?int $userId = null, ?string $name = null): bool
     {
         $current = $this->findById($serviceId);
         if ($current) {
@@ -40,23 +40,31 @@ class Service
             }
         }
 
+        $params = [
+            ':is_enabled'      => $isEnabled ? 1 : 0,
+            ':coin_value'      => $coinValue,
+            ':service_seconds' => $serviceSeconds,
+            ':id'              => $serviceId,
+        ];
+
+        $nameSql = '';
+        if ($name !== null && trim($name) !== '') {
+            $nameSql = ', name = :name';
+            $params[':name'] = trim($name);
+        }
+
         return $this->db->query(
-            'UPDATE services
-             SET is_enabled = :is_enabled, coin_value = :coin_value, service_seconds = :service_seconds
-             WHERE id = :id',
-            [
-                ':is_enabled'      => $isEnabled ? 1 : 0,
-                ':coin_value'      => $coinValue,
-                ':service_seconds' => $serviceSeconds,
-                ':id'              => $serviceId,
-            ]
+            "UPDATE services
+             SET is_enabled = :is_enabled, coin_value = :coin_value, service_seconds = :service_seconds {$nameSql}
+             WHERE id = :id",
+            $params
         )->rowCount() > 0;
     }
 
     public function findById(int $serviceId): ?array
     {
         $service = $this->db->query(
-            'SELECT id, is_enabled, coin_value, service_seconds FROM services WHERE id = :id LIMIT 1',
+            'SELECT id, name, type, icon, service_key, is_enabled, coin_value, service_seconds FROM services WHERE id = :id LIMIT 1',
             [':id' => $serviceId]
         )->fetch();
 

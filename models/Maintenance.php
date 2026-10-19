@@ -15,6 +15,8 @@ require_once __DIR__ . '/../config/database.php';
 
 class Maintenance
 {
+    public const MAX_ACTIVE_REMINDERS = 50;
+
     private Database $db;
 
     public function __construct()
@@ -74,7 +76,7 @@ class Maintenance
              INNER JOIN machines m ON m.id = mi.machine_id
              LEFT JOIN services s ON s.id = mi.service_id
              WHERE {$where}
-             ORDER BY mi.is_enabled DESC, mi.updated_at DESC",
+             ORDER BY mi.is_enabled DESC, mi.updated_at DESC, mi.id DESC",
             $params
         )->fetchAll();
 
@@ -85,6 +87,68 @@ class Maintenance
         }
         unset($item);
         return $items;
+    }
+
+    /**
+     * Retrieve paginated active/configured reminders for the Active Reminders list.
+     *
+     * @param int|null $ownerId
+     * @param int      $page
+     * @param int      $perPage
+     * @return array{items: array, total_items: int, page: int, per_page: int, total_pages: int, count_text: string, from: int, to: int}
+     */
+    public function itemsPaginated(?int $ownerId = null, int $page = 1, int $perPage = 5): array
+    {
+        $perPage = max(1, min(50, $perPage));
+        $allItems = $this->items($ownerId);
+        $totalItems = count($allItems);
+        $totalPages = max(1, (int) ceil($totalItems / $perPage));
+
+        $page = max(1, $page);
+        if ($page > $totalPages) {
+            $page = 1;
+        }
+
+        $offset = ($page - 1) * $perPage;
+        $items = ($totalItems > 0) ? array_slice($allItems, $offset, $perPage) : [];
+
+        $from = ($totalItems > 0) ? ($offset + 1) : 0;
+        $to = min($offset + $perPage, $totalItems);
+        $countText = ($totalItems === 0)
+            ? 'Showing 0 of 0 reminders'
+            : "Showing {$from}–{$to} of {$totalItems} reminders";
+
+        return [
+            'items'       => $items,
+            'total_items' => $totalItems,
+            'page'        => $page,
+            'per_page'    => $perPage,
+            'total_pages' => $totalPages,
+            'count_text'  => $countText,
+            'from'        => $from,
+            'to'          => $to,
+        ];
+    }
+
+    /**
+     * Count reminders qualifying as active under system rules (is_deleted = 0 AND is_enabled = 1).
+     *
+     * @param int|null $ownerId
+     * @return int
+     */
+    public function countActive(?int $ownerId = null): int
+    {
+        $where = 'mi.is_deleted = 0 AND mi.is_enabled = 1';
+        $params = [];
+        if ($ownerId !== null && $ownerId > 0) {
+            $where .= ' AND (m.owner_id = :owner_id OR m.id IN (SELECT m2.id FROM machines m2 JOIN product_keys pk ON (pk.hardware_serial = m2.machine_code OR pk.hardware_serial = m2.machine_key) WHERE pk.owner_id = :owner_id2))';
+            $params = [':owner_id' => $ownerId, ':owner_id2' => $ownerId];
+        }
+
+        return (int) $this->db->query(
+            "SELECT COUNT(*) FROM maintenance_items mi INNER JOIN machines m ON m.id = mi.machine_id WHERE {$where}",
+            $params
+        )->fetchColumn();
     }
 
     public function add(array $data, ?int $ownerId = null): void
@@ -105,30 +169,58 @@ class Maintenance
             throw new RuntimeException('No active vending machine found for this account.');
         }
 
-        $baseline = (int) $machine['runtime_seconds'];
-        if ($data['service_id']) {
-            $baseline = (int) $this->db->query('SELECT runtime_seconds FROM services WHERE id = :id', [':id' => $data['service_id']])->fetchColumn();
-        }
+        $machineId = (int) $machine['id'];
+        $pdo = $this->db->getConnection();
+        $pdo->beginTransaction();
+        try {
+            // Lock machine row to serialize concurrent reminder creation for this machine
+            $this->db->query('SELECT id FROM machines WHERE id = :id FOR UPDATE', [':id' => $machineId])->fetch();
 
-        $this->db->query(
-            'INSERT INTO maintenance_items
-             (machine_id, service_id, name, reminder_type, is_enabled, last_completed_at,
-              calendar_interval_value, calendar_interval_unit, runtime_interval_seconds, runtime_baseline_seconds)
-             VALUES (:machine_id, :service_id, :name, :type, :enabled, :last_completed,
-                     :calendar_value, :calendar_unit, :runtime_interval, :runtime_baseline)',
-            [
-                ':machine_id'       => $machine['id'], 
-                ':service_id'       => $data['service_id'] ?: null,
-                ':name'             => $data['name'], 
-                ':type'             => $data['type'], 
-                ':enabled'          => $data['enabled'],
-                ':last_completed'   => $data['last_completed'], 
-                ':calendar_value'   => $data['calendar_value'],
-                ':calendar_unit'    => $data['calendar_unit'], 
-                ':runtime_interval' => $data['runtime_interval'],
-                ':runtime_baseline' => $baseline,
-            ]
-        );
+            // Count only reminders that qualify as active under system rules (is_deleted = 0 AND is_enabled = 1)
+            $activeCount = (int) $this->db->query(
+                'SELECT COUNT(*) FROM maintenance_items 
+                 WHERE machine_id = :machine_id AND is_deleted = 0 AND is_enabled = 1',
+                [':machine_id' => $machineId]
+            )->fetchColumn();
+
+            if ($activeCount >= self::MAX_ACTIVE_REMINDERS) {
+                throw new InvalidArgumentException(
+                    'Maximum active reminder limit reached (' . self::MAX_ACTIVE_REMINDERS . ' active reminders per machine). Please delete or disable an existing reminder before adding a new one.'
+                );
+            }
+
+            $baseline = (int) $machine['runtime_seconds'];
+            if (!empty($data['service_id'])) {
+                $baseline = (int) $this->db->query('SELECT runtime_seconds FROM services WHERE id = :id', [':id' => $data['service_id']])->fetchColumn();
+            }
+
+            $this->db->query(
+                'INSERT INTO maintenance_items
+                 (machine_id, service_id, name, reminder_type, is_enabled, last_completed_at,
+                  calendar_interval_value, calendar_interval_unit, runtime_interval_seconds, runtime_baseline_seconds)
+                 VALUES (:machine_id, :service_id, :name, :type, :enabled, :last_completed,
+                         :calendar_value, :calendar_unit, :runtime_interval, :runtime_baseline)',
+                [
+                    ':machine_id'       => $machineId, 
+                    ':service_id'       => $data['service_id'] ?: null,
+                    ':name'             => $data['name'], 
+                    ':type'             => $data['type'], 
+                    ':enabled'          => $data['enabled'],
+                    ':last_completed'   => $data['last_completed'], 
+                    ':calendar_value'   => $data['calendar_value'],
+                    ':calendar_unit'    => $data['calendar_unit'], 
+                    ':runtime_interval' => $data['runtime_interval'],
+                    ':runtime_baseline' => $baseline,
+                ]
+            );
+
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     public function delete(int $itemId): void
@@ -196,6 +288,20 @@ class Maintenance
                 [':id' => $itemId]
             )->fetch();
             if (!$item) throw new InvalidArgumentException('Maintenance item was not found.');
+
+            // Prevent duplicate records from rapid repeated clicks or page refreshes (within 10 seconds)
+            $recentCheck = $this->db->query(
+                'SELECT id FROM maintenance_history 
+                 WHERE maintenance_item_id = :item_id 
+                   AND completed_at >= DATE_SUB(NOW(), INTERVAL 10 SECOND)
+                 ORDER BY id DESC LIMIT 1',
+                [':item_id' => $itemId]
+            )->fetch();
+            if ($recentCheck) {
+                $pdo->commit();
+                return;
+            }
+
             $runtime = $item['service_id'] ? (int) $item['service_runtime_seconds'] : (int) $item['machine_runtime_seconds'];
             $this->db->query(
                 'INSERT INTO maintenance_history (maintenance_item_id, completed_by_user_id, completed_at, runtime_at_completion_seconds, notes)
@@ -250,10 +356,11 @@ class Maintenance
         $offset = ($page - 1) * $perPage;
 
         $items = $this->db->query(
-            "SELECT mh.*, mi.name AS maintenance_name, u.full_name
+            "SELECT mh.*, mi.name AS maintenance_name, mi.reminder_type, s.name AS service_name, s.service_key, m.name AS machine_name, u.full_name
              FROM maintenance_history mh 
              INNER JOIN maintenance_items mi ON mi.id = mh.maintenance_item_id
              INNER JOIN machines m ON m.id = mi.machine_id
+             LEFT JOIN services s ON s.id = mi.service_id
              LEFT JOIN users u ON u.id = mh.completed_by_user_id
              WHERE {$where}
              ORDER BY mh.completed_at DESC, mh.id DESC LIMIT {$perPage} OFFSET {$offset}",

@@ -18,11 +18,32 @@
  */
 ?>
 
+<?php
+// Dynamic machine profile and service metadata
+$activeMachType = $machineInfo['machine_type'] ?? 'carwash';
+
+// Dynamic Service 1 metadata (Relay 1 / water key)
+$s1RawName = $waterService['name'] ?? 'Water Service';
+$s1Title   = preg_replace('/\s+Service$/i', '', $s1RawName);
+$s1Icon    = 'bi-droplet-fill';
+if ($activeMachType === 'air_blower' || stripos($s1Title, 'Air') !== false) {
+    $s1Icon = 'bi-speedometer2';
+}
+
+// Dynamic Service 2 metadata (Relay 2 / soap key)
+$s2RawName = $soapService['name'] ?? 'Soap Service';
+$s2Title   = preg_replace('/\s+Service$/i', '', $s2RawName);
+$s2Icon    = 'bi-stars';
+if ($activeMachType === 'air_blower' || stripos($s2Title, 'Blower') !== false) {
+    $s2Icon = 'bi-wind';
+}
+?>
+
 <!-- ============================================================
      0. Low Tank Alert Banners (Water / Soap Floaters)
      ============================================================ -->
 <?php
-if (!empty($machineInfo)) {
+if (!empty($machineInfo) && $activeMachType === 'carwash') {
     $machineAlerts = (new Machine())->getMachineAlerts($machineInfo, $maintItems ?? []);
     foreach ($machineAlerts as $alert):
         if (strpos($alert['title'], 'Tank') !== false):
@@ -101,20 +122,20 @@ $totalMaintCount = count($maintItems);
 <!-- ============================================================
      2. Top KPI Summary Cards (4 equal columns)
      ============================================================ -->
-<div class="row g-3 mb-4">
+<div class="row g-2 g-md-3 mb-4">
 
     <!-- Today's Revenue -->
-    <div class="col-12 col-sm-6 col-xl-3">
+    <div class="col-6 col-xl-3">
         <div class="stat-card stat-card-accent-success">
             <div class="stat-card-body">
                 <div class="stat-card-info">
-                    <p class="stat-card-label">Today's Revenue</p>
+                    <p class="stat-card-label"><?= (!empty($fleetMetrics) && count($fleetMetrics) > 1) ? "Today's Fleet Revenue" : "Today's Revenue" ?></p>
                     <h3 class="stat-card-value text-success">
                         ₱<?= number_format($todayStats['total_revenue'], 2) ?>
                     </h3>
                     <p class="stat-card-trend">
                         <span class="trend-badge trend-up">
-                            <i class="bi bi-calendar-event"></i> Today's Sales
+                            <i class="bi bi-calendar-event"></i> <?= (!empty($fleetMetrics) && count($fleetMetrics) > 1) ? count($fleetMetrics) . ' Machines Total' : term('todays_sales', "Today's Sales") ?>
                         </span>
                     </p>
                 </div>
@@ -131,7 +152,7 @@ $totalMaintCount = count($maintItems);
     </div>
 
     <!-- Today's Transactions -->
-    <div class="col-12 col-sm-6 col-xl-3">
+    <div class="col-6 col-xl-3">
         <div class="stat-card stat-card-accent-primary">
             <div class="stat-card-body">
                 <div class="stat-card-info">
@@ -143,7 +164,7 @@ $totalMaintCount = count($maintItems);
                         <span class="trend-badge trend-neutral">
                             <i class="bi bi-receipt"></i> Completed
                         </span>
-                        <span class="text-muted">Avg. ₱<?= number_format($todayStats['avg_transaction_value'], 2) ?></span>
+                        <span class="text-muted d-none d-sm-inline">Avg. ₱<?= number_format($todayStats['avg_transaction_value'], 2) ?></span>
                     </p>
                 </div>
                 <div class="stat-card-icon" style="background: rgba(14,165,233,.1); color: var(--vl-primary);">
@@ -158,23 +179,23 @@ $totalMaintCount = count($maintItems);
         </div>
     </div>
 
-    <!-- Water Sales -->
-    <div class="col-12 col-sm-6 col-xl-3">
+    <!-- Service 1 Sales -->
+    <div class="col-6 col-xl-3">
         <div class="stat-card stat-card-accent-info">
             <div class="stat-card-body">
                 <div class="stat-card-info">
-                    <p class="stat-card-label">Water Sales</p>
+                    <p class="stat-card-label"><?= e($s1Title) ?> Sales</p>
                     <h3 class="stat-card-value text-info">
                         ₱<?= number_format($todayStats['water_revenue'], 2) ?>
                     </h3>
                     <p class="stat-card-trend">
                         <span class="trend-badge" style="background: rgba(56,189,248,.15); color: #38bdf8;">
-                            <i class="bi bi-droplet-fill"></i> <?= $todayStats['water_share'] ?>% share
+                            <i class="bi <?= $s1Icon ?>"></i> <?= $todayStats['water_share'] ?>% share
                         </span>
                     </p>
                 </div>
                 <div class="stat-card-icon" style="background: rgba(56,189,248,.1); color: var(--vl-info);">
-                    <i class="bi bi-droplet-fill"></i>
+                    <i class="bi <?= $s1Icon ?>"></i>
                 </div>
             </div>
             <div class="stat-card-footer">
@@ -185,23 +206,23 @@ $totalMaintCount = count($maintItems);
         </div>
     </div>
 
-    <!-- Soap Sales -->
-    <div class="col-12 col-sm-6 col-xl-3">
+    <!-- Service 2 Sales -->
+    <div class="col-6 col-xl-3">
         <div class="stat-card stat-card-accent-warning">
             <div class="stat-card-body">
                 <div class="stat-card-info">
-                    <p class="stat-card-label">Soap Sales</p>
+                    <p class="stat-card-label"><?= e($s2Title) ?> Sales</p>
                     <h3 class="stat-card-value text-warning">
                         ₱<?= number_format($todayStats['soap_revenue'], 2) ?>
                     </h3>
                     <p class="stat-card-trend">
                         <span class="trend-badge" style="background: rgba(234,179,8,.15); color: #fbbf24;">
-                            <i class="bi bi-stars"></i> <?= $todayStats['soap_share'] ?>% share
+                            <i class="bi <?= $s2Icon ?>"></i> <?= $todayStats['soap_share'] ?>% share
                         </span>
                     </p>
                 </div>
                 <div class="stat-card-icon" style="background: rgba(245,158,11,.1); color: var(--vl-warning);">
-                    <i class="bi bi-stars"></i>
+                    <i class="bi <?= $s2Icon ?>"></i>
                 </div>
             </div>
             <div class="stat-card-footer">
@@ -215,93 +236,340 @@ $totalMaintCount = count($maintItems);
 </div>
 
 <!-- ============================================================
-     3. Today's Sales Chart — Full Width
+     2.1 Fleet Machine Financial Breakdown (Multi-Machine Fleet)
      ============================================================ -->
-<div class="chart-card mb-4">
-    <div class="breakdown-header mb-3">
-        <div>
-            <h5 class="panel-title mb-1">
-                <i class="bi bi-graph-up me-2 text-primary-vl"></i><?= term('todays_sales', "Today's Sales") ?>
-            </h5>
-            <p class="text-muted small mb-0">
-                Hourly transaction revenue breakdown for Water and Soap services.
-            </p>
-        </div>
+<?php if (!empty($fleetMetrics) && count($fleetMetrics) > 1): ?>
+<div class="report-section-card mb-4 p-3 rounded-3" style="border: 1px solid rgba(56, 189, 248, 0.2); background: rgba(15, 23, 42, 0.75);">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3 pb-2" style="border-bottom: 1px solid var(--vl-border);">
         <div class="d-flex align-items-center gap-2">
-            <a href="<?= BASE_URL ?>/dashboard/sales.php" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-cash-coin me-1"></i><?= term('view_sales', 'View Sales') ?>
+            <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 36px; height: 36px; background: rgba(56, 189, 248, 0.15); color: #38bdf8;">
+                <i class="bi bi-hdd-stack-fill fs-6"></i>
+            </div>
+            <div>
+                <h6 class="mb-0 fw-bold text-white d-flex align-items-center gap-2 flex-wrap">
+                    Fleet Financial Breakdown (Today)
+                    <span class="badge bg-info-subtle text-info border border-info border-opacity-25 rounded-pill" style="font-size: 0.7rem;">
+                        <?= count($fleetMetrics) ?> Machines &bull; Total ₱<?= number_format($todayStats['total_revenue'], 2) ?>
+                    </span>
+                </h6>
+                <span class="text-muted small">Individual earnings from each vending unit contributing to your main total.</span>
+            </div>
+        </div>
+        <div>
+            <a href="<?= BASE_URL ?>/dashboard/sales.php" class="btn btn-sm btn-outline-info text-nowrap">
+                <i class="bi bi-funnel me-1"></i>Filter In Sales <i class="bi bi-arrow-right ms-1"></i>
             </a>
         </div>
     </div>
 
-    <!-- Chart Canvas Container -->
-    <div class="chart-canvas-wrapper" style="position: relative; height: 220px; width: 100%;">
-        <canvas id="dashboardTodaySalesChart"></canvas>
-    </div>
+    <div class="row g-3">
+        <?php foreach ($fleetMetrics as $fItem): 
+            $fRev = (float)$fItem['period_revenue'];
+            $fTx  = (int)$fItem['period_transactions'];
+            $fShare = ($todayStats['total_revenue'] > 0) ? round(($fRev / $todayStats['total_revenue']) * 100, 1) : 0;
+            $fActive = ($machineInfo && (int)$machineInfo['id'] === (int)$fItem['id']);
+            $fStat = $fItem['status'] ?? 'offline';
+            $fDot = ($fStat === 'online') ? 'status-online' : 'status-offline';
+        ?>
+        <div class="col-12 col-md-6 col-xl-<?= count($fleetMetrics) <= 2 ? '6' : (count($fleetMetrics) <= 3 ? '4' : '3') ?>">
+            <div class="p-3 rounded-3 h-100 d-flex flex-column justify-content-between position-relative" 
+                 style="background: rgba(15, 23, 42, 0.6); border: 1px solid <?= $fActive ? 'rgba(56, 189, 248, 0.45)' : 'var(--vl-border)' ?>; <?= $fActive ? 'box-shadow: 0 0 15px rgba(56, 189, 248, 0.12);' : '' ?>">
+                
+                <div>
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <div class="d-flex align-items-center gap-2 min-w-0">
+                            <span class="status-dot <?= $fDot ?>"></span>
+                            <strong class="text-white text-truncate" style="font-size: 0.92rem;"><?= e($fItem['name']) ?></strong>
+                            <?php if ($fActive): ?>
+                                <span class="badge bg-primary-subtle text-primary border border-primary border-opacity-25" style="font-size: 0.65rem;">Active</span>
+                            <?php endif; ?>
+                        </div>
+                        <span class="badge bg-dark border border-secondary text-muted font-monospace" style="font-size: 0.7rem;">
+                            <?= e($fItem['machine_code'] ?: 'Unit') ?>
+                        </span>
+                    </div>
 
-    <?php if ((int)($todayStats['total_transactions'] ?? 0) === 0): ?>
-    <div class="small text-muted text-center mt-2">
-        <i class="bi bi-info-circle me-1"></i>No transactions recorded yet today. Hourly sales will appear as customers use services.
+                    <div class="d-flex align-items-baseline justify-content-between my-2">
+                        <div>
+                            <span class="text-muted small d-block" style="font-size: 0.72rem;">Today's Revenue</span>
+                            <h4 class="mb-0 fw-bold <?= $fRev > 0 ? 'text-success' : 'text-light' ?>">
+                                ₱<?= number_format($fRev, 2) ?>
+                            </h4>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge bg-success-subtle text-success border border-success border-opacity-25" style="font-size: 0.75rem;">
+                                <?= $fTx ?> tx
+                            </span>
+                            <span class="text-muted small d-block mt-0.5" style="font-size: 0.7rem;"><?= $fShare ?>% of total</span>
+                        </div>
+                    </div>
+
+                    <div class="progress bg-dark mb-3" style="height: 5px;">
+                        <div class="progress-bar bg-success" role="progressbar" style="width: <?= $fShare ?>%;" aria-valuenow="<?= $fShare ?>" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                </div>
+
+                <div class="d-flex align-items-center justify-content-between pt-2 border-top border-secondary border-opacity-25 mt-auto">
+                    <a href="<?= BASE_URL ?>/dashboard/sales.php?machine=<?= (int)$fItem['id'] ?>" class="btn btn-sm btn-link text-decoration-none text-info p-0" style="font-size: 0.75rem;">
+                        <i class="bi bi-graph-up me-1"></i>View Machine Sales
+                    </a>
+                    <?php if (!$fActive): ?>
+                    <a href="<?= BASE_URL ?>/dashboard/switch_machine.php?id=<?= (int)$fItem['id'] ?>&return_to=<?= urlencode(BASE_URL . '/dashboard/index.php') ?>" 
+                       class="btn btn-sm btn-outline-secondary py-0.5 px-2 text-light" style="font-size: 0.72rem;">
+                        Switch Context
+                    </a>
+                    <?php else: ?>
+                    <span class="text-muted small" style="font-size: 0.72rem;">Selected in Topnav</span>
+                    <?php endif; ?>
+                </div>
+
+            </div>
+        </div>
+        <?php endforeach; ?>
     </div>
-    <?php endif; ?>
 </div>
+<?php endif; ?>
 
 <!-- ============================================================
-     3.5 VendoAI Insights Widget
+     3.5 VendoAI Insights — Smart Predictions & Daily Tips
      ============================================================ -->
-<?php if (isset($aiInsights) && is_array($aiInsights)): ?>
-<div class="report-section-card mb-4" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(6, 24, 38, 0.95)); border: 1px solid rgba(56, 189, 248, 0.25);">
-    <div class="breakdown-header border-bottom border-secondary border-opacity-25 pb-3 mb-3">
+<?php if (isset($aiInsights) && is_array($aiInsights)): 
+    $currentHour  = (int) date('G');
+    $isNight      = ($currentHour < 6 || $currentHour >= 18);
+    $weatherIcon  = $isNight ? 'bi-moon-stars-fill' : 'bi-sun-fill';
+    $weatherColor = $isNight ? '#93c5fd' : '#f59e0b';
+    $weatherText  = $isNight ? 'Clear 27°C' : 'Sunny 32°C';
+    $tipsList     = !empty($aiInsights['priority_tips']) ? $aiInsights['priority_tips'] : [];
+?>
+<div class="report-section-card vendoai-card mb-4 p-3 p-md-4" id="vendoAiInsightsWidget">
+    
+    <!-- Top Header -->
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3 pb-2 border-bottom border-secondary border-opacity-10">
         <div>
-            <h5 class="panel-title mb-1">
-                <i class="bi bi-robot me-2" style="color: var(--vl-cyan);"></i><?= term('vendoai_insights', 'VendoAI Insights') ?>
-            </h5>
-            <p class="text-muted small mb-0">
-                AI predictions based on recent telemetry and sales velocity.
-            </p>
+            <h4 class="mb-1 fw-bold text-white fs-5 d-flex align-items-center gap-2">
+                <span class="vendoai-robot-badge">🤖</span>
+                <?= term('vendoai_insights', 'VendoAI Insights') ?>
+            </h4>
+            <span class="text-muted small">Smart predictions &amp; daily tips by Google Gemini 3.8</span>
         </div>
-        <div>
-            <a href="<?= BASE_URL ?>/dashboard/ai.php" class="btn btn-sm btn-outline-info font-semibold">
-                <i class="bi bi-robot me-1"></i><?= term('open_vendoai', 'Open VendoAI') ?> <i class="bi bi-arrow-right ms-1"></i>
-            </a>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge vendoai-weather-badge">
+                <i class="bi <?= $weatherIcon ?> me-1" style="color: <?= $weatherColor ?>;"></i> <?= $weatherText ?>
+            </span>
         </div>
     </div>
 
-    <!-- AI Insights Quick Metrics Strip -->
-    <div class="row g-3">
-        <div class="col-12 col-sm-6 col-md-3">
-            <div class="p-3 rounded-3" style="background: var(--vl-surface-2); border: 1px solid var(--vl-border);">
-                <div class="text-muted small mb-1"><i class="bi bi-graph-up-arrow text-success me-1"></i><?= term('estimated_monthly_sales', 'Estimated Monthly Sales') ?></div>
-                <strong class="text-success fs-5">₱<?= number_format($aiInsights['predicted_monthly_rev'], 2) ?></strong>
-                <div class="text-muted small" style="font-size: 0.75rem;">Prediction &bull; ₱<?= number_format($aiInsights['avg_daily_revenue'], 2) ?>/day avg</div>
+    <!-- 4 Hero Metric Cards (2x2 on Mobile, 4x1 on Desktop) -->
+    <div class="row g-3 mb-3">
+        <!-- Card 1: Monthly Sales -->
+        <div class="col-6 col-xl-3">
+            <div class="vendoai-metric-box h-100">
+                <div class="d-flex align-items-center gap-2 mb-1.5">
+                    <i class="bi bi-graph-up-arrow" style="color: #22c55e;"></i>
+                    <span class="vendoai-metric-label"><?= term('estimated_monthly_sales', 'Estimated Monthly Sales') ?></span>
+                </div>
+                <?php if (empty($aiInsights['has_sales'])): ?>
+                    <div class="vendoai-metric-value text-success">
+                        ₱0.00
+                    </div>
+                    <div class="vendoai-metric-subtext">
+                        ● Standby &bull; Awaiting initial vend
+                    </div>
+                    <div class="vendoai-metric-footer">
+                        <span class="badge bg-secondary-subtle text-light border border-secondary border-opacity-25" style="font-size: 0.7rem;">Standby Mode</span>
+                    </div>
+                <?php else: ?>
+                    <div class="vendoai-metric-value text-success">
+                        ₱<?= number_format((float)($aiInsights['predicted_monthly_rev'] ?? 0), 2) ?>
+                    </div>
+                    <div class="vendoai-metric-subtext">
+                        <span class="text-success fw-semibold"><i class="bi bi-arrow-up-short"></i>Growing</span> &bull; ₱<?= number_format((float)($aiInsights['avg_daily_revenue'] ?? 0), 2) ?>/day
+                    </div>
+                    <div class="vendoai-metric-footer">
+                        <span class="badge bg-success-subtle text-success border border-success border-opacity-25" style="font-size: 0.7rem;">Normal Track</span>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
-        <div class="col-12 col-sm-6 col-md-3">
-            <div class="p-3 rounded-3" style="background: var(--vl-surface-2); border: 1px solid var(--vl-border);">
-                <div class="text-muted small mb-1"><i class="bi bi-droplet-half text-warning me-1"></i><?= term('water_refill_estimate', 'Water Refill Estimate') ?></div>
-                <strong class="text-warning fs-5">~<?= $aiInsights['days_until_water_refill'] ?> Day(s)</strong>
-                <div class="text-muted small" style="font-size: 0.75rem;">Prediction &bull; <?= $aiInsights['water_cycles_left'] ?> vends left</div>
+        <!-- Card 2: Water Supply -->
+        <div class="col-6 col-xl-3">
+            <div class="vendoai-metric-box h-100">
+                <div class="d-flex align-items-center gap-2 mb-1.5">
+                    <i class="bi bi-droplet-half" style="color: #38bdf8;"></i>
+                    <span class="vendoai-metric-label"><?= term('water_refill_estimate', 'Water Refill Estimate') ?></span>
+                </div>
+                <?php if (!empty($aiInsights['water_tank_low'])): ?>
+                    <div class="vendoai-metric-value text-danger">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i>10L Reserve
+                    </div>
+                    <div class="vendoai-metric-subtext text-danger">
+                        <i class="bi bi-exclamation-circle-fill me-1"></i>Check Water Supply &bull; ~<?= (int)($aiInsights['water_reserve_washes'] ?? 10) ?> washes left
+                    </div>
+                    <div class="vendoai-metric-footer">
+                        <span class="badge bg-danger-subtle text-danger border border-danger border-opacity-25" style="font-size: 0.7rem;">Supply Alert</span>
+                    </div>
+                <?php else: ?>
+                    <div class="vendoai-metric-value" style="color: #38bdf8;">
+                        Auto-Supply
+                    </div>
+                    <div class="vendoai-metric-subtext">
+                        ● Auto-Valve Active &bull; 100L Drum
+                    </div>
+                    <div class="vendoai-metric-footer">
+                        <span class="badge bg-info-subtle text-info border border-info border-opacity-25" style="font-size: 0.7rem;">Auto-Supply OK</span>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
-        <div class="col-12 col-sm-6 col-md-3">
-            <div class="p-3 rounded-3" style="background: var(--vl-surface-2); border: 1px solid var(--vl-border);">
-                <div class="text-muted small mb-1"><i class="bi bi-sparkles text-cyan me-1"></i><?= term('soap_refill_estimate', 'Soap Refill Estimate') ?></div>
-                <strong class="text-info fs-5">~<?= $aiInsights['days_until_soap_refill'] ?> Day(s)</strong>
-                <div class="text-muted small" style="font-size: 0.75rem;">Prediction &bull; <?= $aiInsights['soap_cycles_left'] ?> vends left</div>
+        <!-- Card 3: Soap Supply -->
+        <div class="col-6 col-xl-3">
+            <div class="vendoai-metric-box h-100">
+                <div class="d-flex align-items-center gap-2 mb-1.5">
+                    <i class="bi bi-funnel-fill" style="color: #c084fc;"></i>
+                    <span class="vendoai-metric-label"><?= term('soap_refill_estimate', 'Soap Refill Estimate') ?></span>
+                </div>
+                <?php if (!empty($aiInsights['soap_tank_low'])): ?>
+                    <div class="vendoai-metric-value text-warning">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i>2L Reserve
+                    </div>
+                    <div class="vendoai-metric-subtext text-warning">
+                        <i class="bi bi-exclamation-circle-fill me-1"></i>Refill Soon &bull; ~<?= (int)($aiInsights['soap_reserve_washes'] ?? 20) ?> washes left
+                    </div>
+                    <div class="vendoai-metric-footer">
+                        <span class="badge bg-warning-subtle text-warning border border-warning border-opacity-25" style="font-size: 0.7rem;">10% Low Reserve</span>
+                    </div>
+                <?php elseif (empty($aiInsights['has_sales'])): ?>
+                    <div class="vendoai-metric-value" style="color: #c084fc;">
+                        20L Full
+                    </div>
+                    <div class="vendoai-metric-subtext">
+                        ● ~<?= number_format((int)($aiInsights['soap_total_washes'] ?? 200)) ?> washes ready &bull; Standby
+                    </div>
+                    <div class="vendoai-metric-footer">
+                        <span class="badge bg-info-subtle text-info border border-info border-opacity-25" style="font-size: 0.7rem;">10% Reserve Armed</span>
+                    </div>
+                <?php else: ?>
+                    <div class="vendoai-metric-value" style="color: #c084fc;">
+                        ~<?= (int)($aiInsights['days_until_soap_refill'] ?? 0) ?> Day(s)
+                    </div>
+                    <div class="vendoai-metric-subtext">
+                        ● <?= number_format((int)($aiInsights['soap_cycles_left'] ?? 0)) ?> washes left
+                    </div>
+                    <div class="vendoai-metric-footer">
+                        <span class="badge bg-info-subtle text-info border border-info border-opacity-25" style="font-size: 0.7rem;">20L Capacity</span>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
-        <div class="col-12 col-sm-6 col-md-3">
-            <div class="p-3 rounded-3" style="background: var(--vl-surface-2); border: 1px solid var(--vl-border);">
-                <div class="text-muted small mb-1"><i class="bi bi-clock-history text-info me-1"></i><?= term('peak_usage_time', 'Peak Usage Time') ?></div>
-                <strong class="text-light fs-5"><?= e($aiInsights['peak_hour']) ?></strong>
-                <div class="text-muted small" style="font-size: 0.75rem;">Prediction &bull; Highest customer traffic</div>
+        <!-- Card 4: Peak Usage Window -->
+        <div class="col-6 col-xl-3">
+            <div class="vendoai-metric-box h-100">
+                <div class="d-flex align-items-center gap-2 mb-1.5">
+                    <i class="bi bi-clock-history" style="color: #38bdf8;"></i>
+                    <span class="vendoai-metric-label"><?= term('peak_usage_time', 'Peak Usage Time') ?></span>
+                </div>
+                <?php if (empty($aiInsights['has_sales']) || ((int)($aiInsights['total_tx'] ?? 0) < 5)): ?>
+                    <div class="vendoai-metric-value text-white" style="font-size: 1.15rem;">
+                        Calibrating...
+                    </div>
+                    <div class="vendoai-metric-subtext">
+                        ● AI learning traffic patterns
+                    </div>
+                    <div class="vendoai-metric-footer">
+                        <span class="badge bg-primary-subtle text-primary border border-primary border-opacity-25" style="font-size: 0.7rem;">Needs 5+ Vends</span>
+                    </div>
+                <?php else: ?>
+                    <div class="vendoai-metric-value text-white">
+                        <?= e($aiInsights['peak_hour']) ?>
+                    </div>
+                    <div class="vendoai-metric-subtext">
+                        ● Highest customer traffic window
+                    </div>
+                    <div class="vendoai-metric-footer">
+                        <span class="badge bg-primary-subtle text-primary border border-primary border-opacity-25" style="font-size: 0.7rem;">Peak Window</span>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
+
+    <!-- Priority Action Slider [ < 1 of 3 > ] -->
+    <div class="vendoai-priority-card p-3 rounded-3 mt-2">
+        <div class="d-flex align-items-center justify-content-between flex-nowrap gap-2 mb-2">
+            <div class="d-flex align-items-center gap-2 min-w-0">
+                <i class="bi bi-lightbulb-fill text-warning fs-5 flex-shrink-0"></i>
+                <span class="fw-bold text-white fs-6 text-truncate">VendoAI Priority Action</span>
+            </div>
+            <div class="d-flex align-items-center gap-1 flex-shrink-0" style="white-space: nowrap;">
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0.5 px-2 text-light" id="vendoaiTipPrev" title="Previous tip" style="font-size: 0.75rem;">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <span class="text-muted small fw-semibold px-1 text-nowrap" id="vendoaiTipCounter" style="font-size: 0.75rem; white-space: nowrap; min-width: 44px; text-align: center; display: inline-block;">1 of <?= count($tipsList) ?: 3 ?></span>
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0.5 px-2 text-light" id="vendoaiTipNext" title="Next tip" style="font-size: 0.75rem;">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+
+        <div id="vendoaiTipsContainer">
+            <?php foreach ($tipsList as $idx => $tip): ?>
+            <div class="vendoai-tip-slide <?= $idx === 0 ? '' : 'd-none' ?>" data-index="<?= $idx ?>">
+                <p class="text-light mb-2" style="font-size: 0.9rem; line-height: 1.5;">
+                    <?= e($tip['text']) ?>
+                </p>
+                <div class="text-muted small d-flex align-items-center gap-2 flex-wrap" style="font-size: 0.75rem;">
+                    <span><i class="bi bi-tag me-1 text-info"></i>Category: <strong class="text-info"><?= e($tip['category']) ?></strong></span>
+                    <span>&bull;</span>
+                    <span>Updated: <?= e($tip['updated']) ?> (Next check in 3 hrs)</span>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+
 </div>
+
+<script>
+(function() {
+    document.addEventListener('DOMContentLoaded', function() {
+        const prevBtn = document.getElementById('vendoaiTipPrev');
+        const nextBtn = document.getElementById('vendoaiTipNext');
+        const counter = document.getElementById('vendoaiTipCounter');
+        const slides = document.querySelectorAll('.vendoai-tip-slide');
+        
+        if (!slides.length || !prevBtn || !nextBtn) return;
+        
+        let currentIdx = 0;
+        const total = slides.length;
+
+        function showSlide(idx) {
+            slides.forEach((slide, i) => {
+                if (i === idx) {
+                    slide.classList.remove('d-none');
+                } else {
+                    slide.classList.add('d-none');
+                }
+            });
+            if (counter) {
+                counter.textContent = (idx + 1) + ' of ' + total;
+            }
+        }
+
+        prevBtn.addEventListener('click', function() {
+            currentIdx = (currentIdx - 1 + total) % total;
+            showSlide(currentIdx);
+        });
+
+        nextBtn.addEventListener('click', function() {
+            currentIdx = (currentIdx + 1) % total;
+            showSlide(currentIdx);
+        });
+    });
+})();
+</script>
 <?php endif; ?>
 
 <!-- ============================================================
@@ -449,7 +717,7 @@ $totalMaintCount = count($maintItems);
             <div class="col-6">
                 <div class="p-2 rounded" style="background: rgba(15,23,42,.6); border: 1px solid var(--vl-border);">
                     <div class="d-flex justify-content-between align-items-center">
-                        <span class="text-muted small"><i class="bi bi-droplet-fill text-info me-1"></i>Water</span>
+                        <span class="text-muted small"><i class="bi <?= $s1Icon ?> text-info me-1"></i><?= e($s1Title) ?></span>
                         <span class="badge bg-dark border border-secondary text-info">
                             <i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i>IDLE
                         </span>
@@ -459,7 +727,7 @@ $totalMaintCount = count($maintItems);
             <div class="col-6">
                 <div class="p-2 rounded" style="background: rgba(15,23,42,.6); border: 1px solid var(--vl-border);">
                     <div class="d-flex justify-content-between align-items-center">
-                        <span class="text-muted small"><i class="bi bi-stars text-warning me-1"></i>Soap</span>
+                        <span class="text-muted small"><i class="bi <?= $s2Icon ?> text-warning me-1"></i><?= e($s2Title) ?></span>
                         <span class="badge bg-dark border border-secondary text-warning">
                             <i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i>IDLE
                         </span>
@@ -467,11 +735,17 @@ $totalMaintCount = count($maintItems);
                 </div>
             </div>
             <?php
-            // Coin slot powered when water service is enabled AND water tank is not low
+            // Coin slot power logic
             $waterSvc        = $servicesByKey['water'] ?? null;
+            $soapSvc         = $servicesByKey['soap'] ?? null;
             $waterEnabled    = !empty($waterSvc['is_enabled']);
+            $soapEnabled     = !empty($soapSvc['is_enabled']);
             $waterTankLow    = !empty($machineInfo['water_tank_low']);
-            $coinSlotOn      = $waterEnabled && !$waterTankLow;
+            if ($activeMachType === 'carwash') {
+                $coinSlotOn  = $waterEnabled && !$waterTankLow;
+            } else {
+                $coinSlotOn  = ($waterEnabled || $soapEnabled);
+            }
             ?>
             <div class="col-12">
                 <div class="p-2 rounded" style="background: rgba(15,23,42,.6); border: 1px solid var(--vl-border);">
@@ -493,10 +767,10 @@ $totalMaintCount = count($maintItems);
                     <div class="text-muted mt-1" style="font-size: 0.72rem;">
                         <?php if ($coinSlotOn): ?>
                             HW-482 relay de-energized — NC closed — 12V connected
-                        <?php elseif ($waterTankLow): ?>
+                        <?php elseif ($activeMachType === 'carwash' && $waterTankLow): ?>
                             Water tank empty — relay energized — 12V cut off
                         <?php else: ?>
-                            Water service disabled — relay energized — 12V cut off
+                            Services disabled — relay energized — 12V cut off
                         <?php endif; ?>
                     </div>
                 </div>
@@ -532,7 +806,7 @@ $totalMaintCount = count($maintItems);
             </p>
         </div>
         <a href="<?= BASE_URL ?>/dashboard/archive.php" class="btn btn-sm btn-outline-primary text-nowrap d-inline-flex align-items-center">
-            View All <i class="bi bi-arrow-right ms-1"></i>
+            <?= term('view_more', 'View More') ?>
         </a>
     </div>
 
@@ -560,33 +834,61 @@ $totalMaintCount = count($maintItems);
             </thead>
             <tbody>
                 <?php foreach ($previewTxs as $tx):
+                    $txSvcName = !empty($tx['service_name']) ? preg_replace('/\s+Service$/i', '', $tx['service_name']) : '';
+                    if (empty($txSvcName)) {
+                        $txSvcName = match (strtolower($tx['service_key'] ?? '')) {
+                            'water' => 'Water',
+                            'soap'  => 'Soap',
+                            default => 'Service',
+                        };
+                    }
                     $isWater = ($tx['service_key'] === 'water');
+                    $txIcon = 'bi-stars text-warning';
+                    if (stripos($txSvcName, 'Air') !== false) {
+                        $txIcon = 'bi-speedometer2 text-info';
+                    } elseif (stripos($txSvcName, 'Blower') !== false) {
+                        $txIcon = 'bi-wind text-warning';
+                    } elseif ($isWater) {
+                        $txIcon = 'bi-droplet-fill text-info';
+                    }
+                    $serviceDisplayName = $txSvcName;
+                    $statusLabel = match (strtolower($tx['status'] ?? '')) {
+                        'completed'   => 'Completed',
+                        'incomplete'  => 'Incomplete',
+                        'interrupted' => 'Interrupted',
+                        'failed'      => 'Unsuccessful',
+                        'active'      => 'Active',
+                        'pending'     => 'Pending',
+                        'cancelled'   => 'Cancelled',
+                        default       => ucfirst(strtolower($tx['status'] ?? '')),
+                    };
                 ?>
                 <tr style="border-bottom: 1px solid rgba(255,255,255,.04); font-size: .84rem;">
                     <td class="ps-2">
-                        <span class="tx-id"><?= e($tx['formatted_id']) ?></span>
+                        <span class="tx-id text-white fw-bold"><?= e($tx['formatted_id']) ?></span>
                     </td>
                     <td>
-                        <div class="d-flex align-items-center gap-1">
-                            <i class="bi <?= $isWater ? 'bi-droplet-fill text-info' : 'bi-stars text-warning' ?>"></i>
-                            <span class="text-light fw-medium"><?= e($tx['service_name']) ?></span>
+                        <div class="d-flex align-items-center gap-1.5">
+                            <i class="bi <?= $txIcon ?>"></i>
+                            <span class="text-light fw-medium"><?= e($serviceDisplayName) ?></span>
                         </div>
                     </td>
                     <td>
                         <strong class="text-success"><?= e($tx['amount_formatted']) ?></strong>
                     </td>
                     <td>
-                        <span class="badge bg-dark border border-secondary text-light font-monospace">
-                            <?= e($tx['purchased_time_label']) ?>
+                        <span class="text-light fw-medium">
+                            <i class="bi bi-clock-history me-1 text-primary-vl"></i><?= e($tx['purchased_time_label']) ?>
                         </span>
                     </td>
                     <td>
                         <span class="tx-badge tx-badge-<?= e($tx['status']) ?>">
-                            <?= ucfirst(e($tx['status'])) ?>
+                            <?= e($statusLabel) ?>
                         </span>
                     </td>
-                    <td class="pe-2 text-end text-muted small">
-                        <?= time_ago($tx['created_at']) ?>
+                    <td class="pe-2 text-end">
+                        <div class="text-light fw-medium small"><?= format_date($tx['created_at'], 'M j, Y, g:i A') ?></div>
+                        <div class="text-muted" style="font-size: .72rem;"><?= time_ago($tx['created_at']) ?></div>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -609,8 +911,8 @@ $totalMaintCount = count($maintItems);
                 Audit feed of system authentications, service configurations, and operations.
             </p>
         </div>
-        <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-clock-history me-1"></i><?= term('view_history', 'View History') ?>
+        <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions" class="btn btn-sm btn-outline-primary text-nowrap d-inline-flex align-items-center">
+            <?= term('view_more', 'View More') ?>
         </a>
     </div>
     <div class="p-0 activity-container" style="margin: 0 -1.35rem -1.25rem;">

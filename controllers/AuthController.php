@@ -334,48 +334,113 @@ class AuthController
      */
     public function sendVerificationEmail(string $to, string $name, string $verifyLink): bool
     {
-        $logMessage = sprintf(
-            "[%s] EMAIL VERIFICATION LINK for %s <%s>:\n%s\n",
-            date('Y-m-d H:i:s'),
-            $name,
-            $to,
-            $verifyLink
-        );
+        $subject  = 'Verify Your Email Address — ' . APP_NAME;
+        $safeName = htmlspecialchars(trim($name) ?: 'Owner', ENT_QUOTES, 'UTF-8');
 
-        $logFile = LOGS_PATH . '/mail.log';
-        if (!is_dir(LOGS_PATH)) {
-            mkdir(LOGS_PATH, 0755, true);
-        }
-        file_put_contents($logFile, $logMessage, FILE_APPEND | LOCK_EX);
-
-        if (defined('SMTP_ENABLED') && SMTP_ENABLED) {
-            $subject  = 'Verify Your Email Address — ' . APP_NAME;
-            $from     = SMTP_FROM_EMAIL;
-            $fromName = SMTP_FROM_NAME;
-
-            $htmlBody = <<<HTML
+        $htmlBody = <<<HTML
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Email Verification</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Your Email Address — VendoLink</title>
 </head>
-<body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #0a0f1e; color: #ffffff; padding: 20px;">
-    <div style="max-width: 550px; margin: 0 auto; background-color: #0f172a; padding: 30px; border-radius: 12px; border: 1px solid #1e293b;">
-        <h2 style="color: #0ea5e9; margin-top: 0; font-size: 22px;">Verify Your Email Address</h2>
-        <p style="color: #cbd5e1; font-size: 15px;">Hello <strong>{$name}</strong>,</p>
-        <p style="color: #cbd5e1; font-size: 14px; line-height: 1.5;">Please click the button below to verify your email address for your VendoLink account:</p>
-        <div style="margin: 30px 0; text-align: center;">
-            <a href="{$verifyLink}" style="background-color: #0ea5e9; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Verify Email Address</a>
-        </div>
-        <p style="font-size: 12px; color: #94a3b8; line-height: 1.4;">If you did not request this, you can safely ignore this email.</p>
-    </div>
+<body style="margin: 0; padding: 0; background-color: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0b0f19; table-layout: fixed;">
+        <tr>
+            <td align="center" style="padding: 40px 16px;">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #0f172a; border-radius: 14px; border: 1px solid #1e293b; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+                    <tr>
+                        <td height="4" style="background-color: #0ea5e9; font-size: 0; line-height: 0;">&nbsp;</td>
+                    </tr>
+                    <tr>
+                        <td align="center" style="padding: 36px 32px 24px 32px;">
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td align="center">
+                                        <div style="font-size: 28px; font-weight: 800; letter-spacing: -0.5px; color: #ffffff; line-height: 1.2;">
+                                            Vendo<span style="color: #0ea5e9;">Link</span>
+                                        </div>
+                                        <div style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 6px;">
+                                            IoT Monitoring &amp; Sales Audit System
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0 32px;">
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td height="1" style="background-color: #1e293b; font-size: 0; line-height: 0;">&nbsp;</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 32px 32px 24px 32px;">
+                            <h1 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 700; color: #ffffff; line-height: 1.4;">
+                                Verify Your Email Address
+                            </h1>
+                            <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
+                                Hello <strong style="color: #ffffff;">{$safeName}</strong>,
+                            </p>
+                            <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #94a3b8;">
+                                Please click the button below to verify your email address and activate your VendoLink account:
+                            </p>
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 28px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{$verifyLink}" style="background-color: #0ea5e9; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px; display: inline-block; letter-spacing: 0.5px;">Verify Email Address</a>
+                                    </td>
+                                </tr>
+                            </table>
+                            <p style="margin: 24px 0 0 0; font-size: 12px; line-height: 1.5; color: #64748b;">
+                                If you did not create a VendoLink account, you can safely ignore this email.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 24px 32px 32px 32px; background-color: #0b1120; border-top: 1px solid #1e293b; text-align: center;">
+                            <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: #cbd5e1;">
+                                VendoLink Support
+                            </p>
+                            <p style="margin: 0 0 10px 0; font-size: 11px; color: #64748b; line-height: 1.4;">
+                                IoT Monitoring &amp; Sales Audit System
+                            </p>
+                            <p style="margin: 0; font-size: 11px; color: #475569; line-height: 1.4;">
+                                This is an automated notification. Replies to this email are not monitored.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 </html>
 HTML;
-            return $this->sendViaSmtpSocket($to, $subject, $htmlBody, $from, $fromName);
-        }
-        return true;
+
+        $plainText = <<<TEXT
+VendoLink — IoT Monitoring & Sales Audit System
+================================================
+
+Verify Your Email Address
+
+Hello {$name},
+
+Please verify your email address for your VendoLink account by visiting the link below:
+{$verifyLink}
+
+If you did not request this, you can safely ignore this email.
+
+--
+VendoLink Support
+IoT Monitoring & Sales Audit System
+TEXT;
+
+        return Mailer::send($to, $subject, $htmlBody, $plainText);
     }
 
     // ============================================================
@@ -465,6 +530,7 @@ HTML;
         unset($_SESSION['reg_form_data']);
 
         // Create owner account (inactive & unverified)
+        // Create owner account (inactive & unverified)
         $userId = $this->userModel->createOwnerAccount([
             'full_name' => $fullName,
             'username'  => $username,
@@ -472,29 +538,36 @@ HTML;
             'password'  => $password,
         ]);
 
-        // Activate Product Key & link owner to physical hardware unit
-        $keyData  = $keyValidation['key'];
-        $keyId    = (int)$keyData['id'];
-        $hwSerial = $keyData['hardware_serial'];
-        $this->productKeyModel->activateKey($keyId, $userId, $hwSerial);
+        // Key details stored in session — key remains UNUSED until email OTP verification succeeds
+        $keyData   = $keyValidation['key'];
+        $keyId     = (int)$keyData['id'];
+        $hwSerial  = $keyData['hardware_serial'] ?? null;
+        $machineId = !empty($keyData['machine_id']) ? (int)$keyData['machine_id'] : null;
 
         // Generate 6-digit OTP
         $otp = $this->userModel->createEmailVerifyOtp($userId);
 
-        // Store OTP state in session
-        $_SESSION['reg_user_id']   = $userId;
-        $_SESSION['reg_email']     = $email;
-        $_SESSION['reg_name']      = $fullName;
-        $_SESSION['otp_sent_at']   = time();
-        $_SESSION['otp_attempts']  = 0;
+        // Store OTP and pending activation state in session
+        $_SESSION['reg_user_id']    = $userId;
+        $_SESSION['reg_email']      = $email;
+        $_SESSION['reg_name']       = $fullName;
+        $_SESSION['reg_key_id']     = $keyId;
+        $_SESSION['reg_key_code']   = $keyData['product_key'];
+        $_SESSION['reg_hw_serial']  = $hwSerial;
+        $_SESSION['reg_machine_id'] = $machineId;
+        $_SESSION['otp_sent_at']    = time();
+        $_SESSION['otp_attempts']   = 0;
 
         // Send OTP email
-        $this->sendOtpEmail($email, $fullName, $otp);
+        $sent = $this->sendOtpEmail($email, $fullName, $otp);
 
         log_activity('REGISTER_INITIATED', 'Owner account registration initiated with product key ' . e($keyData['product_key']), $userId);
-        log_activity('PRODUCT_KEY_ACTIVATED', "Activated product key {$keyData['product_key']} for hardware {$hwSerial}.", $userId);
 
-        flash('info', 'We sent a 6-digit verification code to ' . e(mask_email($email)));
+        if ($sent) {
+            flash('info', 'We sent a 6-digit verification code to ' . e(mask_email($email)));
+        } else {
+            flash('warning', "We couldn't send your verification email. Please try again later.");
+        }
         redirect('auth/verify_otp.php');
     }
 
@@ -529,16 +602,20 @@ HTML;
         $_SESSION['otp_attempts'] = 0;
 
         // Send OTP email
-        $this->sendOtpEmail($email, $name, $otp);
+        $sent = $this->sendOtpEmail($email, $name, $otp);
 
         log_activity('REGISTER_OTP_RESENT', 'Resent email verification OTP code.', (int)$userId);
 
-        flash('success', 'A new 6-digit code has been sent to ' . e(mask_email($email)));
+        if ($sent) {
+            flash('success', 'A new 6-digit code has been sent to ' . e(mask_email($email)));
+        } else {
+            flash('danger', "We couldn't send your verification email. Please try again later.");
+        }
         redirect('auth/verify_otp.php');
     }
 
     /**
-     * Process 6-digit OTP verification (POST /auth/verify_otp.php).
+     * Process 6-digit OTP verification and atomic hardware claiming (POST /auth/verify_otp.php).
      */
     public function verifyOtp(): void
     {
@@ -567,19 +644,61 @@ HTML;
             redirect('auth/verify_otp.php');
         }
 
-        // Verify OTP in DB
-        $success = $this->userModel->verifyEmailOtp((int)$userId, $otp);
+        $keyId     = (int)($_SESSION['reg_key_id'] ?? 0);
+        $hwSerial  = $_SESSION['reg_hw_serial'] ?? null;
+        $machineId = !empty($_SESSION['reg_machine_id']) ? (int)$_SESSION['reg_machine_id'] : null;
+        $keyCode   = $_SESSION['reg_key_code'] ?? '';
 
-        if (!$success) {
-            flash('danger', 'Invalid or expired verification code. Please try again.');
-            log_activity('REGISTER_OTP_FAILED', 'Failed OTP verification attempt.', (int)$userId);
+        // Execute user verification, key consumption, and machine claiming atomically
+        $pdo = Database::getInstance()->getConnection();
+        $pdo->beginTransaction();
+
+        try {
+            // 1. Verify OTP and activate user account
+            $success = $this->userModel->verifyEmailOtp((int)$userId, $otp);
+
+            if (!$success) {
+                $pdo->rollBack();
+                flash('danger', 'Invalid or expired verification code. Please try again.');
+                log_activity('REGISTER_OTP_FAILED', 'Failed OTP verification attempt.', (int)$userId);
+                redirect('auth/verify_otp.php');
+            }
+
+            // 2. Claim Product Key & bind hardware unit
+            if ($keyId > 0) {
+                $activated = $this->productKeyModel->activateKey($keyId, (int)$userId, $hwSerial, $machineId);
+                if (!$activated) {
+                    $pdo->rollBack();
+                    flash('danger', 'Unable to complete activation: this Product Key has already been claimed or is invalid. Please contact support.');
+                    log_activity('REGISTER_KEY_CLAIM_FAILED', "Failed to claim key ID {$keyId} during OTP verification.", (int)$userId);
+                    redirect('auth/register.php');
+                }
+                log_activity('PRODUCT_KEY_ACTIVATED', "Activated product key {$keyCode} for owner ID #{$userId}.", (int)$userId);
+            }
+
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            flash('danger', 'System error during activation: ' . $e->getMessage());
             redirect('auth/verify_otp.php');
         }
 
-        // Verification successful — activate account!
+        // Verification successful — activate session state
         log_activity('REGISTER_SUCCESS', 'Owner account verified and activated successfully.', (int)$userId);
 
-        unset($_SESSION['reg_user_id'], $_SESSION['reg_email'], $_SESSION['reg_name'], $_SESSION['otp_sent_at'], $_SESSION['otp_attempts']);
+        unset(
+            $_SESSION['reg_user_id'],
+            $_SESSION['reg_email'],
+            $_SESSION['reg_name'],
+            $_SESSION['reg_key_id'],
+            $_SESSION['reg_key_code'],
+            $_SESSION['reg_hw_serial'],
+            $_SESSION['reg_machine_id'],
+            $_SESSION['otp_sent_at'],
+            $_SESSION['otp_attempts']
+        );
         $_SESSION['reg_completed'] = true;
 
         redirect('auth/verify_otp.php');
@@ -590,52 +709,143 @@ HTML;
      */
     public function sendOtpEmail(string $to, string $name, string $otp): bool
     {
-        $logMessage = sprintf(
-            "[%s] REGISTRATION OTP CODE for %s <%s>: %s\n",
-            date('Y-m-d H:i:s'),
-            $name,
-            $to,
-            $otp
-        );
+        $subject      = "Your VendoLink Verification Code: {$otp}";
+        $formattedOtp = implode(' ', str_split($otp));
+        $safeName     = htmlspecialchars(trim($name) ?: 'Owner', ENT_QUOTES, 'UTF-8');
 
-        $logFile = LOGS_PATH . '/mail.log';
-        if (!is_dir(LOGS_PATH)) {
-            mkdir(LOGS_PATH, 0755, true);
-        }
-        file_put_contents($logFile, $logMessage, FILE_APPEND | LOCK_EX);
-
-        if (defined('SMTP_ENABLED') && SMTP_ENABLED) {
-            $subject  = "Your VendoLink Verification Code: {$otp}";
-            $from     = SMTP_FROM_EMAIL;
-            $fromName = SMTP_FROM_NAME;
-
-            $formattedOtp = implode(' ', str_split($otp));
-
-            $htmlBody = <<<HTML
+        $htmlBody = <<<HTML
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Verification Code</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Your Email Address — VendoLink</title>
 </head>
-<body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #0a0f1e; color: #ffffff; padding: 20px;">
-    <div style="max-width: 550px; margin: 0 auto; background-color: #0f172a; padding: 30px; border-radius: 12px; border: 1px solid #1e293b; text-align: center;">
-        <h2 style="color: #0ea5e9; margin-top: 0; font-size: 22px;">Verify your email</h2>
-        <p style="color: #cbd5e1; font-size: 15px; text-align: left;">Hello <strong>{$name}</strong>,</p>
-        <p style="color: #cbd5e1; font-size: 14px; line-height: 1.5; text-align: left;">Use the 6-digit verification code below to complete your VendoLink owner account registration:</p>
-        
-        <div style="margin: 28px 0; background-color: #1e293b; border: 1px solid #0ea5e9; border-radius: 10px; padding: 18px; letter-spacing: 12px; font-size: 32px; font-weight: 800; color: #38bdf8; font-family: monospace;">
-            {$formattedOtp}
-        </div>
-        
-        <p style="font-size: 13px; color: #94a3b8; line-height: 1.4;">This code expires in <strong>5 minutes</strong>. Do not share this code with anyone.</p>
-    </div>
+<body style="margin: 0; padding: 0; background-color: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0b0f19; table-layout: fixed;">
+        <tr>
+            <td align="center" style="padding: 40px 16px;">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #0f172a; border-radius: 14px; border: 1px solid #1e293b; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+                    <tr>
+                        <td height="4" style="background-color: #0ea5e9; font-size: 0; line-height: 0;">&nbsp;</td>
+                    </tr>
+                    <tr>
+                        <td align="center" style="padding: 36px 32px 24px 32px;">
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td align="center">
+                                        <div style="font-size: 28px; font-weight: 800; letter-spacing: -0.5px; color: #ffffff; line-height: 1.2;">
+                                            Vendo<span style="color: #0ea5e9;">Link</span>
+                                        </div>
+                                        <div style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 6px;">
+                                            IoT Monitoring &amp; Sales Audit System
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0 32px;">
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td height="1" style="background-color: #1e293b; font-size: 0; line-height: 0;">&nbsp;</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 32px 32px 24px 32px;">
+                            <h1 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 700; color: #ffffff; line-height: 1.4;">
+                                Verify Your Email Address
+                            </h1>
+                            <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
+                                Hello <strong style="color: #ffffff;">{$safeName}</strong>,
+                            </p>
+                            <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #94a3b8;">
+                                Thank you for registering a VendoLink Owner account. To complete your account registration and activate your machine management features, please verify your email address using the six-digit verification code below:
+                            </p>
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 28px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="background-color: #1e293b; border: 2px solid #0ea5e9; border-radius: 10px; width: 100%; max-width: 380px;">
+                                            <tr>
+                                                <td align="center" style="padding: 20px 16px;">
+                                                    <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: #64748b; margin-bottom: 8px;">
+                                                        Verification Code
+                                                    </div>
+                                                    <div style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace; font-size: 32px; font-weight: 800; letter-spacing: 10px; color: #38bdf8; line-height: 1.2;">
+                                                        {$formattedOtp}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #162032; border-left: 3px solid #0ea5e9; border-radius: 6px; margin: 24px 0;">
+                                <tr>
+                                    <td style="padding: 14px 18px;">
+                                        <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: #e2e8f0; line-height: 1.4;">
+                                            &#9201; This code expires in 5 minutes.
+                                        </p>
+                                        <p style="margin: 0; font-size: 12px; color: #94a3b8; line-height: 1.5;">
+                                            <strong>Security Reminder:</strong> Never share this code with anyone. VendoLink staff will never ask for your verification code.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                            <p style="margin: 24px 0 0 0; font-size: 12px; line-height: 1.5; color: #64748b;">
+                                If you did not create a VendoLink account, no action is required and you can safely ignore this email. The account will not be activated without email verification.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 24px 32px 32px 32px; background-color: #0b1120; border-top: 1px solid #1e293b; text-align: center;">
+                            <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: #cbd5e1;">
+                                VendoLink Support
+                            </p>
+                            <p style="margin: 0 0 10px 0; font-size: 11px; color: #64748b; line-height: 1.4;">
+                                IoT Monitoring &amp; Sales Audit System
+                            </p>
+                            <p style="margin: 0; font-size: 11px; color: #475569; line-height: 1.4;">
+                                This is an automated notification. Replies to this email are not monitored.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 </html>
 HTML;
-            return $this->sendViaSmtpSocket($to, $subject, $htmlBody, $from, $fromName);
-        }
-        return true;
+
+        $plainText = <<<TEXT
+VendoLink — IoT Monitoring & Sales Audit System
+================================================
+
+Verify Your Email Address
+
+Hello {$name},
+
+Thank you for registering a VendoLink Owner account. To complete your account registration and activate your machine management features, please verify your email address using the six-digit verification code below:
+
+VERIFICATION CODE: {$otp}
+
+This code expires in 5 minutes.
+
+SECURITY REMINDER:
+Never share this code with anyone. VendoLink staff will never ask for your verification code.
+
+If you did not create a VendoLink account, no action is required and you can safely ignore this email. The account will not be activated without email verification.
+
+--
+VendoLink Support
+IoT Monitoring & Sales Audit System
+TEXT;
+
+        return Mailer::send($to, $subject, $htmlBody, $plainText);
     }
 
     /**
@@ -643,52 +853,141 @@ HTML;
      */
     public function sendEmailChangeOtp(string $to, string $name, string $otp): bool
     {
-        $logMessage = sprintf(
-            "[%s] EMAIL CHANGE OTP CODE for %s <%s>: %s\n",
-            date('Y-m-d H:i:s'),
-            $name,
-            $to,
-            $otp
-        );
+        $subject      = "Your VendoLink Email Change Code: {$otp}";
+        $formattedOtp = implode(' ', str_split($otp));
+        $safeName     = htmlspecialchars(trim($name) ?: 'Owner', ENT_QUOTES, 'UTF-8');
 
-        $logFile = LOGS_PATH . '/mail.log';
-        if (!is_dir(LOGS_PATH)) {
-            mkdir(LOGS_PATH, 0755, true);
-        }
-        file_put_contents($logFile, $logMessage, FILE_APPEND | LOCK_EX);
-
-        if (defined('SMTP_ENABLED') && SMTP_ENABLED) {
-            $subject  = "Your VendoLink Email Change Code: {$otp}";
-            $from     = SMTP_FROM_EMAIL;
-            $fromName = SMTP_FROM_NAME;
-
-            $formattedOtp = implode(' ', str_split($otp));
-
-            $htmlBody = <<<HTML
+        $htmlBody = <<<HTML
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Email Change Verification Code</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirm Email Change — VendoLink</title>
 </head>
-<body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #0a0f1e; color: #ffffff; padding: 20px;">
-    <div style="max-width: 550px; margin: 0 auto; background-color: #0f172a; padding: 30px; border-radius: 12px; border: 1px solid #1e293b; text-align: center;">
-        <h2 style="color: #0ea5e9; margin-top: 0; font-size: 22px;">Confirm Email Change</h2>
-        <p style="color: #cbd5e1; font-size: 15px; text-align: left;">Hello <strong>{$name}</strong>,</p>
-        <p style="color: #cbd5e1; font-size: 14px; line-height: 1.5; text-align: left;">You requested to change your VendoLink account email address to this address. Use the 6-digit verification code below to confirm this change:</p>
-        
-        <div style="margin: 28px 0; background-color: #1e293b; border: 1px solid #0ea5e9; border-radius: 10px; padding: 18px; letter-spacing: 12px; font-size: 32px; font-weight: 800; color: #38bdf8; font-family: monospace;">
-            {$formattedOtp}
-        </div>
-        
-        <p style="font-size: 13px; color: #94a3b8; line-height: 1.4;">This code expires in <strong>5 minutes</strong>. If you did not request this change, please ignore this email or contact support.</p>
-    </div>
+<body style="margin: 0; padding: 0; background-color: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0b0f19; table-layout: fixed;">
+        <tr>
+            <td align="center" style="padding: 40px 16px;">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #0f172a; border-radius: 14px; border: 1px solid #1e293b; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+                    <tr>
+                        <td height="4" style="background-color: #0ea5e9; font-size: 0; line-height: 0;">&nbsp;</td>
+                    </tr>
+                    <tr>
+                        <td align="center" style="padding: 36px 32px 24px 32px;">
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td align="center">
+                                        <div style="font-size: 28px; font-weight: 800; letter-spacing: -0.5px; color: #ffffff; line-height: 1.2;">
+                                            Vendo<span style="color: #0ea5e9;">Link</span>
+                                        </div>
+                                        <div style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 6px;">
+                                            IoT Monitoring &amp; Sales Audit System
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0 32px;">
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td height="1" style="background-color: #1e293b; font-size: 0; line-height: 0;">&nbsp;</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 32px 32px 24px 32px;">
+                            <h1 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 700; color: #ffffff; line-height: 1.4;">
+                                Confirm Email Address Change
+                            </h1>
+                            <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
+                                Hello <strong style="color: #ffffff;">{$safeName}</strong>,
+                            </p>
+                            <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #94a3b8;">
+                                You recently requested to update the email address associated with your VendoLink account. Please use the six-digit confirmation code below to complete this change:
+                            </p>
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 28px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="background-color: #1e293b; border: 2px solid #0ea5e9; border-radius: 10px; width: 100%; max-width: 380px;">
+                                            <tr>
+                                                <td align="center" style="padding: 20px 16px;">
+                                                    <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: #64748b; margin-bottom: 8px;">
+                                                        Confirmation Code
+                                                    </div>
+                                                    <div style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace; font-size: 32px; font-weight: 800; letter-spacing: 10px; color: #38bdf8; line-height: 1.2;">
+                                                        {$formattedOtp}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #162032; border-left: 3px solid #0ea5e9; border-radius: 6px; margin: 24px 0;">
+                                <tr>
+                                    <td style="padding: 14px 18px;">
+                                        <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: #e2e8f0; line-height: 1.4;">
+                                            &#9201; This code expires in 5 minutes.
+                                        </p>
+                                        <p style="margin: 0; font-size: 12px; color: #94a3b8; line-height: 1.5;">
+                                            <strong>Security Notice:</strong> If you did not request to change your email address, please disregard this email or contact support immediately.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                            <p style="margin: 24px 0 0 0; font-size: 12px; line-height: 1.5; color: #64748b;">
+                                No changes will be made to your account until this code is entered and verified.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 24px 32px 32px 32px; background-color: #0b1120; border-top: 1px solid #1e293b; text-align: center;">
+                            <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: #cbd5e1;">
+                                VendoLink Support
+                            </p>
+                            <p style="margin: 0 0 10px 0; font-size: 11px; color: #64748b; line-height: 1.4;">
+                                IoT Monitoring &amp; Sales Audit System
+                            </p>
+                            <p style="margin: 0; font-size: 11px; color: #475569; line-height: 1.4;">
+                                This is an automated notification. Replies to this email are not monitored.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 </html>
 HTML;
-            return $this->sendViaSmtpSocket($to, $subject, $htmlBody, $from, $fromName);
-        }
-        return true;
+
+        $plainText = <<<TEXT
+VendoLink — IoT Monitoring & Sales Audit System
+================================================
+
+Confirm Email Address Change
+
+Hello {$name},
+
+You recently requested to update the email address associated with your VendoLink account. Please use the six-digit confirmation code below to complete this change:
+
+CONFIRMATION CODE: {$otp}
+
+This code expires in 5 minutes.
+
+SECURITY NOTICE:
+If you did not request to change your email address, please contact support immediately. No changes will be made to your account until this code is entered and verified.
+
+--
+VendoLink Support
+IoT Monitoring & Sales Audit System
+TEXT;
+
+        return Mailer::send($to, $subject, $htmlBody, $plainText);
     }
 
     // ============================================================
@@ -698,129 +997,138 @@ HTML;
     /**
      * Send password reset email.
      *
-     * STUB: Replace this with PHPMailer / SMTP in production.
-     * For development, the reset link is written to the log file.
-     *
      * @param string $to        Recipient email
      * @param string $name      Recipient full name
      * @param string $resetLink Full reset URL
      */
     private function sendPasswordResetEmail(string $to, string $name, string $resetLink): void
     {
-        // 1. Always log locally for audit/debugging
-        $logMessage = sprintf(
-            "[%s] PASSWORD RESET LINK for %s <%s>:\n%s\n",
-            date('Y-m-d H:i:s'),
-            $name,
-            $to,
-            $resetLink
-        );
+        $subject  = 'Reset Your Password — ' . APP_NAME;
+        $safeName = htmlspecialchars(trim($name) ?: 'User', ENT_QUOTES, 'UTF-8');
 
-        $logFile = LOGS_PATH . '/mail.log';
-        if (!is_dir(LOGS_PATH)) {
-            mkdir(LOGS_PATH, 0755, true);
-        }
-        file_put_contents($logFile, $logMessage, FILE_APPEND | LOCK_EX);
-
-        // 2. Real online email sending if SMTP is enabled
-        if (defined('SMTP_ENABLED') && SMTP_ENABLED) {
-            $subject  = 'Reset Your Password — ' . APP_NAME;
-            $from     = SMTP_FROM_EMAIL;
-            $fromName = SMTP_FROM_NAME;
-
-            $htmlBody = <<<HTML
+        $htmlBody = <<<HTML
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Password Reset</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reset Your Password — VendoLink</title>
 </head>
-<body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #0a0f1e; color: #ffffff; padding: 20px;">
-    <div style="max-width: 550px; margin: 0 auto; background-color: #0f172a; padding: 30px; border-radius: 12px; border: 1px solid #1e293b;">
-        <h2 style="color: #0ea5e9; margin-top: 0; font-size: 22px;">VendoLink Password Reset</h2>
-        <p style="color: #cbd5e1; font-size: 15px;">Hello <strong>{$name}</strong>,</p>
-        <p style="color: #cbd5e1; font-size: 14px; line-height: 1.5;">You requested a password reset for your VendoLink account. Click the button below to set a new password:</p>
-        <div style="margin: 30px 0; text-align: center;">
-            <a href="{$resetLink}" style="background-color: #0ea5e9; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Reset Password</a>
-        </div>
-        <p style="font-size: 12px; color: #94a3b8; line-height: 1.4;">If you did not request a password reset, you can safely ignore this message. This link expires in 1 hour for security.</p>
-    </div>
+<body style="margin: 0; padding: 0; background-color: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0b0f19; table-layout: fixed;">
+        <tr>
+            <td align="center" style="padding: 40px 16px;">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #0f172a; border-radius: 14px; border: 1px solid #1e293b; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+                    <tr>
+                        <td height="4" style="background-color: #0ea5e9; font-size: 0; line-height: 0;">&nbsp;</td>
+                    </tr>
+                    <tr>
+                        <td align="center" style="padding: 36px 32px 24px 32px;">
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td align="center">
+                                        <div style="font-size: 28px; font-weight: 800; letter-spacing: -0.5px; color: #ffffff; line-height: 1.2;">
+                                            Vendo<span style="color: #0ea5e9;">Link</span>
+                                        </div>
+                                        <div style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 6px;">
+                                            IoT Monitoring &amp; Sales Audit System
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0 32px;">
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td height="1" style="background-color: #1e293b; font-size: 0; line-height: 0;">&nbsp;</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 32px 32px 24px 32px;">
+                            <h1 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 700; color: #ffffff; line-height: 1.4;">
+                                Password Reset Request
+                            </h1>
+                            <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
+                                Hello <strong style="color: #ffffff;">{$safeName}</strong>,
+                            </p>
+                            <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #94a3b8;">
+                                We received a request to reset the password for your VendoLink account. Click the button below to set a new password:
+                            </p>
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 28px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{$resetLink}" style="background-color: #0ea5e9; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px; display: inline-block; letter-spacing: 0.5px;">Reset Password</a>
+                                    </td>
+                                </tr>
+                            </table>
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #162032; border-left: 3px solid #0ea5e9; border-radius: 6px; margin: 24px 0;">
+                                <tr>
+                                    <td style="padding: 14px 18px;">
+                                        <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: #e2e8f0; line-height: 1.4;">
+                                            &#9201; This link expires in 1 hour.
+                                        </p>
+                                        <p style="margin: 0; font-size: 12px; color: #94a3b8; line-height: 1.5;">
+                                            <strong>Security Notice:</strong> If you did not request a password reset, you can safely ignore this email. Your current password remains secure.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 24px 32px 32px 32px; background-color: #0b1120; border-top: 1px solid #1e293b; text-align: center;">
+                            <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: #cbd5e1;">
+                                VendoLink Support
+                            </p>
+                            <p style="margin: 0 0 10px 0; font-size: 11px; color: #64748b; line-height: 1.4;">
+                                IoT Monitoring &amp; Sales Audit System
+                            </p>
+                            <p style="margin: 0; font-size: 11px; color: #475569; line-height: 1.4;">
+                                This is an automated notification. Replies to this email are not monitored.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 </html>
 HTML;
 
-            // Attempt SMTP socket delivery
-            $sent = $this->sendViaSmtpSocket($to, $subject, $htmlBody, $from, $fromName);
+        $plainText = <<<TEXT
+VendoLink — IoT Monitoring & Sales Audit System
+================================================
 
-            // Fallback to PHP mail() if socket send fails
-            if (!$sent) {
-                $headers  = "MIME-Version: 1.0\r\n";
-                $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
-                $headers .= "From: {$fromName} <{$from}>\r\n";
-                $headers .= "Reply-To: {$from}\r\n";
-                $headers .= "X-Mailer: PHP/" . phpversion();
-                @mail($to, $subject, $htmlBody, $headers);
-            }
-        }
+Password Reset Request
+
+Hello {$name},
+
+We received a request to reset the password for your VendoLink account. Open the link below to choose a new password:
+{$resetLink}
+
+This link expires in 1 hour.
+
+SECURITY NOTICE:
+If you did not request a password reset, you can safely ignore this email. Your current password remains secure.
+
+--
+VendoLink Support
+IoT Monitoring & Sales Audit System
+TEXT;
+
+        Mailer::send($to, $subject, $htmlBody, $plainText);
     }
 
     /**
-     * Send email via direct SSL/TLS SMTP socket connection.
+     * Send email via direct SSL/TLS SMTP socket connection (delegates to centralized Mailer).
      */
     private function sendViaSmtpSocket(string $to, string $subject, string $htmlBody, string $from, string $fromName): bool
     {
-        $host     = SMTP_HOST;
-        $port     = SMTP_PORT;
-        $username = SMTP_USER;
-        $password = SMTP_PASS;
-
-        $socket = @fsockopen($host, $port, $errno, $errstr, 15);
-        if (!$socket) {
-            error_log("[VendoLink SMTP Error] Connection failed: {$errstr} ({$errno})");
-            return false;
-        }
-
-        fgets($socket, 512);
-
-        $cmds = [
-            "EHLO localhost\r\n" => 250,
-            "AUTH LOGIN\r\n" => 334,
-            base64_encode($username) . "\r\n" => 334,
-            base64_encode($password) . "\r\n" => 235,
-            "MAIL FROM: <{$from}>\r\n" => 250,
-            "RCPT TO: <{$to}>\r\n" => 250,
-            "DATA\r\n" => 354,
-        ];
-
-        foreach ($cmds as $cmd => $expectedCode) {
-            fputs($socket, $cmd);
-            $res = '';
-            while ($str = fgets($socket, 512)) {
-                $res .= $str;
-                if (substr($str, 3, 1) === ' ') break;
-            }
-            $code = (int)substr($res, 0, 3);
-            if ($code !== $expectedCode) {
-                error_log("[VendoLink SMTP Error] Failed on step '{$cmd}': expected {$expectedCode}, got {$code}");
-                fclose($socket);
-                return false;
-            }
-        }
-
-        $headers  = "MIME-Version: 1.0\r\n";
-        $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
-        $headers .= "From: {$fromName} <{$from}>\r\n";
-        $headers .= "To: {$to}\r\n";
-        $headers .= "Subject: {$subject}\r\n";
-        $headers .= "Date: " . date('r') . "\r\n";
-
-        fputs($socket, $headers . "\r\n" . $htmlBody . "\r\n.\r\n");
-        $res = fgets($socket, 512);
-        $code = (int)substr($res, 0, 3);
-
-        fputs($socket, "QUIT\r\n");
-        fclose($socket);
-
-        return $code === 250;
+        return Mailer::send($to, $subject, $htmlBody, null, $from, $fromName);
     }
 }

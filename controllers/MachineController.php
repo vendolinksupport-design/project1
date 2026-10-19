@@ -47,7 +47,8 @@ class MachineController
 
                 $isChanged = ((int) $current['is_enabled'] !== ($isEnabled ? 1 : 0)
                     || (float) $current['coin_value'] !== (float) $coinValue
-                    || (int) $current['service_seconds'] !== $serviceSeconds);
+                    || (int) $current['service_seconds'] !== $serviceSeconds
+                    || (!empty($serviceName) && ($current['name'] ?? '') !== $serviceName));
 
                 if ($isChanged) {
                     $hasAnyChange = true;
@@ -78,7 +79,8 @@ class MachineController
                             $svc['is_enabled'],
                             $svc['coin_value'],
                             $svc['service_seconds'],
-                            $userId
+                            $userId,
+                            $svc['name']
                         );
                         $updatedNames[] = $svc['name'];
                     }
@@ -86,7 +88,7 @@ class MachineController
                 $db->commit();
 
                 $summary = !empty($updatedNames) ? implode(' and ', $updatedNames) : 'Service';
-                log_activity('SERVICE_CONFIG_UPDATED', "Updated Machine 01 {$summary} configuration.");
+                log_activity('SERVICE_CONFIG_UPDATED', "Updated machine {$summary} configuration.", $ownerId);
                 flash('success', 'Service configuration saved successfully.');
                 redirect('dashboard/machines.php');
             } catch (\Throwable $e) {
@@ -162,5 +164,173 @@ class MachineController
         log_activity('SERVICE_CONFIG_UPDATED', 'Updated 20x4 LCD screen customizer template.');
         flash('success', '20x4 LCD Screen Template saved successfully! Pushing to physical machine on next heartbeat...');
         redirect('dashboard/machines.php');
+    }
+
+    /**
+     * Apply a preset machine template (Carwash vs Tire Air & Blower vs Solo Tire Air).
+     */
+    public function applyMachineTemplate(): void
+    {
+        csrf_verify();
+
+        $machineId = filter_input(INPUT_POST, 'machine_id', FILTER_VALIDATE_INT);
+        $template  = trim($_POST['machine_template'] ?? 'carwash');
+
+        if (!$machineId) {
+            flash('danger', 'Invalid machine specified.');
+            redirect('dashboard/machines.php');
+            return;
+        }
+
+        $ownerId = current_owner_id();
+        $machine = new Machine();
+        if ($ownerId !== null && $ownerId > 0) {
+            $allowedIds = $machine->getMachineIdsForOwner($ownerId);
+            if (!in_array($machineId, $allowedIds, true)) {
+                flash('danger', 'Access Denied: You do not have permission to configure that machine.');
+                redirect('dashboard/machines.php');
+                return;
+            }
+        }
+
+        $applied = $machine->applyTemplate($machineId, $template, current_user()['id'] ?? null);
+        if ($applied) {
+            $badge = Machine::getMachineTypeBadge($template);
+            log_activity('TEMPLATE_APPLIED', "Applied {$badge['label']} template to machine #{$machineId}.", $ownerId);
+            flash('success', "Template applied successfully! Machine is now configured as <strong>" . e($badge['label']) . "</strong>. Service labels, icons, and LCD presets updated.");
+        } else {
+            flash('danger', 'Failed to apply machine template.');
+        }
+
+        redirect('dashboard/machines.php');
+    }
+
+    /**
+     * Process claiming an additional vending machine using a Product Activation Key.
+     */
+    public function claimMachine(): void
+    {
+        csrf_verify();
+
+        $ownerId = current_owner_id() ?: (int)(current_user()['id'] ?? 0);
+        if ($ownerId <= 0) {
+            flash('danger', 'Access Denied: You must be an authenticated owner to register machines.');
+            redirect('dashboard/index.php');
+            return;
+        }
+
+        $productKey = strtoupper(trim($_POST['product_key'] ?? ''));
+        $nickname   = trim($_POST['machine_nickname'] ?? '');
+        $returnTo   = trim($_POST['return_to'] ?? '');
+
+        // Safe redirection target defense
+        $redirectTarget = 'dashboard/machines.php';
+        if (!empty($returnTo)
+            && (str_starts_with($returnTo, '/') || str_starts_with($returnTo, 'dashboard/'))
+            && !str_starts_with($returnTo, '//')
+            && !str_contains($returnTo, ':')) {
+            $redirectTarget = ltrim($returnTo, '/');
+        }
+
+        if (empty($productKey)) {
+            flash('danger', 'Please enter a valid Product Activation Key.');
+            redirect($redirectTarget);
+            return;
+        }
+
+        require_once ROOT_PATH . '/models/ProductKey.php';
+        $productKeyModel = new ProductKey();
+
+        // 1. Validate Product Key existence and state
+        $validation = $productKeyModel->validateKey($productKey);
+        if (!$validation['valid']) {
+            flash('danger', 'Unable to add machine: ' . e($validation['error']) . '.');
+            redirect($redirectTarget);
+            return;
+        }
+
+        $keyRow = $validation['key'];
+        $keyId  = (int)$keyRow['id'];
+        $db     = Database::getInstance();
+        $pdo    = $db->getConnection();
+
+        // 2. Hardware ownership & collision pre-checks
+        if (!empty($keyRow['machine_id'])) {
+            $stmt = $pdo->prepare("SELECT id, machine_code, name, owner_id, registration_status FROM machines WHERE id = :mid LIMIT 1");
+            $stmt->execute([':mid' => (int)$keyRow['machine_id']]);
+            $mRow = $stmt->fetch();
+
+            if ($mRow) {
+                if ($mRow['registration_status'] === 'disabled') {
+                    flash('danger', 'Unable to add machine: This device hardware has been decommissioned.');
+                    redirect($redirectTarget);
+                    return;
+                }
+
+                if (!empty($mRow['owner_id']) && (int)$mRow['owner_id'] !== $ownerId) {
+                    flash('danger', 'Security Guard: This machine is already assigned to another customer account.');
+                    log_activity('MACHINE_CLAIM_BLOCKED', "User #{$ownerId} attempted to claim machine #{$mRow['id']} already owned by #{$mRow['owner_id']}.");
+                    redirect($redirectTarget);
+                    return;
+                }
+
+                if (!empty($mRow['owner_id']) && (int)$mRow['owner_id'] === $ownerId) {
+                    $_SESSION['selected_machine_id'] = (int)$mRow['id'];
+                    flash('info', 'Machine "' . e($mRow['name'] ?: $mRow['machine_code']) . '" is already connected to your account.');
+                    redirect($redirectTarget);
+                    return;
+                }
+            }
+        }
+
+        // 3. Atomic Key Consumption & Hardware Assignment Transaction
+        $pdo->beginTransaction();
+        try {
+            $activated = $productKeyModel->activateKey(
+                $keyId,
+                $ownerId,
+                $keyRow['hardware_serial'] ?? null,
+                $keyRow['machine_id'] ?? null
+            );
+
+            if (!$activated) {
+                $pdo->rollBack();
+                flash('danger', 'Unable to add machine: this Product Key has already been claimed or is invalid.');
+                redirect($redirectTarget);
+                return;
+            }
+
+            // Resolve assigned machine ID
+            $assignedMachineId = null;
+            $assignedMachineCode = $keyRow['hardware_serial'] ?? 'Unit';
+            $freshKey = $productKeyModel->findById($keyId);
+            if ($freshKey && !empty($freshKey['machine_id'])) {
+                $assignedMachineId = (int)$freshKey['machine_id'];
+            }
+
+            if ($assignedMachineId && !empty($nickname)) {
+                $cleanNick = mb_substr($nickname, 0, 50);
+                $pdo->prepare("UPDATE machines SET name = :name, updated_at = NOW() WHERE id = :mid")
+                    ->execute([':name' => $cleanNick, ':mid' => $assignedMachineId]);
+            }
+
+            $pdo->commit();
+
+            if ($assignedMachineId) {
+                $_SESSION['selected_machine_id'] = $assignedMachineId;
+            }
+
+            $displayName = !empty($nickname) ? $nickname : $assignedMachineCode;
+            log_activity('MACHINE_CLAIMED', "Customer #{$ownerId} registered additional machine {$displayName} with key {$productKey}.", $ownerId);
+            flash('success', "Success! Machine <strong>" . e($displayName) . "</strong> has been added to your account.");
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log("Failed to claim machine key: " . $e->getMessage());
+            flash('danger', 'System error while claiming machine. Please try again.');
+        }
+
+        redirect($redirectTarget);
     }
 }

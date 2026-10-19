@@ -44,7 +44,7 @@ if ($currentPage === 'index' && isset($pageLabels[$currentDir])) {
     <div class="topnav-right">
         <!-- Quick Refresh -->
         <button class="topnav-icon-btn d-none d-sm-flex" onclick="location.reload()" title="Refresh Data">
-            <i class="bi bi-arrow-clockwise"></i>
+            <?= lucide_icon('rotate-cw') ?>
         </button>
 
         <!-- Profile Dropdown -->
@@ -58,7 +58,7 @@ if ($currentPage === 'index' && isset($pageLabels[$currentDir])) {
                     <div class="topnav-user-name"><?= e($authUser['full_name'] ?? 'User') ?></div>
                     <div class="topnav-user-role"><?= ($authUser['role'] === ROLE_SUPPORT) ? 'Support' : 'Admin' ?></div>
                 </div>
-                <i class="bi bi-chevron-down topnav-chevron d-none d-md-block"></i>
+                <?= lucide_icon('chevron-down', 'topnav-chevron d-none d-md-block') ?>
             </button>
 
             <ul class="dropdown-menu dropdown-menu-end profile-dropdown">
@@ -69,7 +69,7 @@ if ($currentPage === 'index' && isset($pageLabels[$currentDir])) {
                 <li><hr class="dropdown-divider my-1"></li>
                 <li>
                     <a class="dropdown-item text-danger" href="<?= BASE_URL ?>/auth/logout.php" data-bs-toggle="modal" data-bs-target="#logoutConfirmModal" id="adminTopnavLogout">
-                        <i class="bi bi-box-arrow-right me-2"></i>Sign Out
+                        <?= lucide_icon('log-out', 'me-2') ?>Sign Out
                     </a>
                 </li>
             </ul>

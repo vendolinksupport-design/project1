@@ -42,7 +42,9 @@ $aiAssistant      = new AiAssistant();
 $today = date('Y-m-d');
 $todayStats    = $reportModel->getSummaryMetrics($today, $today, 'all', $ownerId);
 $todayChart    = $reportModel->getTimeSeries($today, $today, 'today', 'all', $ownerId);
-$machineInfo   = $machineModel->primaryWithServices($ownerId);
+$allMachines   = $machineModel->getAllActive($ownerId);
+$fleetMetrics  = (count($allMachines) > 1 && $ownerId > 0) ? $reportModel->getFleetMachineMetrics($ownerId, $today, $today) : [];
+$machineInfo   = current_selected_machine($ownerId) ?: $machineModel->primaryWithServices($ownerId);
 $recentTxs     = $txModel->getPaginated([], 1, 5, $ownerId)['items'];
 $maintItems    = $maintenanceModel->items($ownerId);
 $maintSummary  = $reportModel->getMaintenanceSummary($today, $today, $ownerId);
@@ -56,7 +58,7 @@ if (!empty($machineInfo['services'])) {
     }
 }
 $waterService = $servicesByKey['water'] ?? ['name' => 'Water Service', 'coin_value' => 5.00, 'service_seconds' => 120];
-$soapService  = $servicesByKey['soap']  ?? ['name' => 'Soap Service',  'coin_value' => 5.00, 'service_seconds' => 120];
+$soapService  = $servicesByKey['soap']  ?? ['name' => 'Soap Service',  'coin_value' => 5.00, 'service_seconds' => 60];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -125,14 +127,29 @@ $soapService  = $servicesByKey['soap']  ?? ['name' => 'Soap Service',  'coin_val
                         Here's what's happening with your machines today.
                     </p>
                 </div>
-                <div class="page-header-actions">
-                    <div class="live-indicator">
-                        <span class="live-dot"></span>
-                        <span>Live</span>
-                    </div>
-                    <div class="page-date">
-                        <i class="bi bi-calendar3 me-1"></i>
-                        <?= date('l, F j, Y') ?>
+                <div class="page-header-actions d-flex align-items-center flex-shrink-0">
+                    <div class="page-date text-slate-300 bg-slate-900 border border-slate-800 rounded-pill px-3 py-1.5 d-inline-flex align-items-center text-nowrap shadow-sm" style="gap: 10px;">
+                        <!-- Live Status Indicator -->
+                        <div class="d-inline-flex align-items-center">
+                            <span class="live-dot me-1.5" style="width: 8px; height: 8px; background: #22c55e; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);"></span>
+                            <span class="text-success fw-bold small text-uppercase" style="font-size: 0.72rem; letter-spacing: 0.05em;">Live</span>
+                        </div>
+
+                        <span class="text-slate-600">&bull;</span>
+
+                        <!-- Calendar Date -->
+                        <div class="d-inline-flex align-items-center text-slate-300 small">
+                            <i class="bi bi-calendar3 me-1.5 text-info"></i>
+                            <span class="fw-medium"><?= date('l, F j, Y') ?></span>
+                        </div>
+
+                        <span class="text-slate-600">&bull;</span>
+
+                        <!-- Sizable Digital Clock Badge -->
+                        <div class="d-inline-flex align-items-center bg-slate-950 border border-slate-700 border-opacity-60 rounded-pill px-2.5 py-1 text-warning shadow-sm">
+                            <i class="bi bi-clock-fill me-1.5 text-warning" style="font-size: 0.95rem;"></i>
+                            <span id="clockDisplay" class="clock-display font-monospace text-white fw-bold fs-6" style="letter-spacing: 0.5px; line-height: 1;"><?= date('h:i A') ?></span>
+                        </div>
                     </div>
                 </div>
             </div>

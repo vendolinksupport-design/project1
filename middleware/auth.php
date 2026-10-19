@@ -28,7 +28,7 @@ require_once __DIR__ . '/../includes/functions.php';
 // ============================================================
 if (session_status() === PHP_SESSION_NONE) {
     session_set_cookie_params([
-        'lifetime' => 0,                                                         // expire on browser close
+        'lifetime' => 86400 * 30,                                                // 30 days persistent cookie (like modern web apps)
         'path'     => '/',
         'domain'   => '',
         'secure'   => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'), // HTTPS only in production

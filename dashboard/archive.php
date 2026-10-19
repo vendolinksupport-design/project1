@@ -6,13 +6,15 @@
  *
  * Read-only historical record repository containing:
  * 1. Transaction History (Service transactions & rate snapshots)
+ *    - Secondary selection: Transaction Records
+ *    - Secondary selection: Cash Collections
  * 2. Maintenance History (Completed maintenance records & runtimes)
  * 3. Configuration History (Service pricing & time change audits)
  *
  * Strictly read-only to preserve a reliable audit trail.
  *
  * @package VendoLink
- * @version 1.0
+ * @version 1.1
  */
 
 require_once __DIR__ . '/../config/config.php';
@@ -20,6 +22,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../middleware/auth.php';
 require_once __DIR__ . '/../models/Archive.php';
+require_once __DIR__ . '/../models/Machine.php';
 require_once __DIR__ . '/../models/Service.php';
 require_once __DIR__ . '/../models/Transaction.php';
 
@@ -31,29 +34,80 @@ $currentPage = 'archive';
 $user        = current_user();
 $ownerId     = current_owner_id();
 
+// ---- Handle POST Actions (e.g. Record Cash Collection) ----
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    $action = $_POST['action'] ?? '';
+    if ($action === 'record_cash_collection') {
+        $collectedAmount = (float)($_POST['collected_amount'] ?? 0);
+        $notes           = trim($_POST['notes'] ?? '');
+        $userId          = (int)(current_user()['id'] ?? 0);
+        $machineModel    = new Machine();
+        $primaryMachine  = $machineModel->primaryWithServices($ownerId);
+        $machineId       = current_selected_machine_id($ownerId) ?: (int)($primaryMachine['id'] ?? 0);
+
+        if ($machineId <= 0) {
+            flash('danger', "No active machine assigned to your account.");
+            redirect('dashboard/archive.php?tab=transactions&section=collections');
+        } elseif ($collectedAmount > 0) {
+            $txModel = new Transaction();
+            $txModel->recordCashCollection($userId, $machineId, $collectedAmount, $notes);
+            flash('success', "Physical cash collection of ₱" . number_format($collectedAmount, 2) . " recorded successfully!");
+            log_activity('CASH_COLLECTED', "Collected ₱" . number_format($collectedAmount, 2) . " from physical coin box.");
+            redirect('dashboard/archive.php?tab=transactions&section=collections');
+        } else {
+            flash('danger', "Please enter a valid cash collection amount.");
+            redirect('dashboard/archive.php?tab=transactions&section=collections');
+        }
+    }
+}
+
 $archiveModel = new Archive();
 $serviceModel = new Service();
 $servicesList = (new Transaction())->getServices($ownerId);
 
-// ---- Active Tab ----
+// ---- Active Top-Level Tab ----
 $activeTab = $_GET['tab'] ?? 'transactions';
 if (!in_array($activeTab, ['transactions', 'maintenance', 'configuration'], true)) {
     $activeTab = 'transactions';
 }
 
-// ---- Common Filters ----
+// ---- Secondary Section (inside Transaction History tab) ----
+$activeSection = 'records';
+if ($activeTab === 'transactions') {
+    $activeSection = ($_GET['section'] ?? 'records') === 'collections' ? 'collections' : 'records';
+}
+
+// ---- Filters for Transaction Records, Maintenance & Configuration ----
 $search   = trim($_GET['search'] ?? '');
 $service  = trim($_GET['service'] ?? 'all');
+$status   = trim($_GET['status'] ?? 'all');
+if (in_array($status, ['interrupted'], true)) {
+    $status = 'incomplete';
+} elseif (in_array($status, ['cancelled', 'failed'], true)) {
+    $status = 'unsuccessful';
+}
 $dateFrom = trim($_GET['date_from'] ?? '');
 $dateTo   = trim($_GET['date_to'] ?? '');
-$page     = max(1, (int)($_GET['page'] ?? 1));
+$page     = max(1, (int)($_GET['page'] ?? $_GET['ccpage'] ?? 1));
 $perPage  = max(1, min(100, (int)($_GET['per_page'] ?? 15)));
 
 $filters = [
     'search'    => $search,
     'service'   => $service,
+    'status'    => $status,
     'date_from' => $dateFrom,
     'date_to'   => $dateTo,
+];
+
+// ---- Separate Filters for Cash Collections ----
+$ccSearch   = trim($_GET['search'] ?? '');
+$ccDateFrom = trim($_GET['date_from'] ?? '');
+$ccDateTo   = trim($_GET['date_to'] ?? '');
+
+$ccFilters = [
+    'search'    => $ccSearch,
+    'date_from' => $ccDateFrom,
+    'date_to'   => $ccDateTo,
 ];
 
 // ---- Handle CSV / Excel Export Actions ----
@@ -66,17 +120,30 @@ if (isset($_GET['export'])) {
     } elseif ($exportType === 'transactions' || $exportType === 'csv' || $exportType === 'excel') {
         $txModel->exportTransactionsCsv($filters, $ownerId);
         exit;
+    } elseif ($exportType === 'cash_collections') {
+        $txModel->exportCashCollectionsCsv($ccFilters, $ownerId);
+        exit;
     }
 }
 
-// ---- Fetch Data for Current Tab ----
+// ---- Fetch Data for Current Tab & Section ----
 $cashCollections      = [];
 $totalCashCollections = 0;
-$ccPerPage            = 10;
+$ccPerPage            = $perPage;
 $ccTotalPages         = 1;
 $ccCurrentPage        = 1;
 $pagedCashCollections = [];
-$historySummary       = [
+$ccSummary            = [
+    'total_collected'    => 0.00,
+    'total_system_sales' => 0.00,
+    'net_variance'       => 0.00,
+    'total_count'        => 0,
+    'match_count'        => 0,
+    'surplus_count'      => 0,
+    'shortage_count'     => 0,
+];
+
+$historySummary = [
     'total_revenue'     => 0.00,
     'transaction_count' => 0,
     'completed_count'   => 0,
@@ -87,25 +154,75 @@ $historySummary       = [
 ];
 
 if ($activeTab === 'transactions') {
-    $result               = $archiveModel->getTransactionHistory($filters, $page, $perPage, $ownerId);
-    $transactionModel     = new Transaction();
-    $historySummary       = $transactionModel->getAuditMetrics($filters, $ownerId);
-    $cashCollections      = $transactionModel->getCashCollections(0, $ownerId, $filters);
-    $totalCashCollections = count($cashCollections);
-    $ccTotalPages         = max(1, (int)ceil($totalCashCollections / $ccPerPage));
-    $ccCurrentPage        = max(1, min($ccTotalPages, (int)($_GET['ccpage'] ?? 1)));
-    $ccOffset             = ($ccCurrentPage - 1) * $ccPerPage;
-    $pagedCashCollections = array_slice($cashCollections, $ccOffset, $ccPerPage);
-} elseif ($activeTab === 'maintenance') {
-    $result = $archiveModel->getMaintenanceHistory($filters, $page, $perPage, $ownerId);
-} else {
-    $result = $archiveModel->getConfigurationHistory($filters, $page, $perPage, $ownerId);
-}
+    $transactionModel = new Transaction();
 
-$records    = $result['items'];
-$totalItems = $result['total_items'];
-$totalPages = $result['total_pages'];
-$page       = $result['page'];
+    if ($activeSection === 'records') {
+        $result               = $archiveModel->getTransactionHistory($filters, $page, $perPage, $ownerId);
+        $historySummary       = $transactionModel->getAuditMetrics($filters, $ownerId);
+        $records              = $result['items'];
+        $totalItems           = $result['total_items'];
+        $totalPages           = $result['total_pages'];
+        $page                 = $result['page'];
+    } else {
+        $allCollections       = $transactionModel->getCashCollections(0, $ownerId, $ccFilters);
+        $totalCashCollections = count($allCollections);
+
+        $totCol = 0.0;
+        $totSys = 0.0;
+        $totVar = 0.0;
+        $mCount = 0;
+        $sCount = 0;
+        $shCount = 0;
+
+        foreach ($allCollections as $ccItem) {
+            $cCol = (float)($ccItem['collected_amount'] ?? 0);
+            $cSys = (float)($ccItem['system_sales_amount'] ?? 0);
+            $cVar = (float)($ccItem['variance_amount'] ?? 0);
+            $totCol += $cCol;
+            $totSys += $cSys;
+            $totVar += $cVar;
+            if ($cVar == 0) {
+                $mCount++;
+            } elseif ($cVar > 0) {
+                $sCount++;
+            } else {
+                $shCount++;
+            }
+        }
+
+        $ccSummary = [
+            'total_collected'    => $totCol,
+            'total_system_sales' => $totSys,
+            'net_variance'       => $totVar,
+            'total_count'        => $totalCashCollections,
+            'match_count'        => $mCount,
+            'surplus_count'      => $sCount,
+            'shortage_count'     => $shCount,
+        ];
+
+        $ccTotalPages         = max(1, (int)ceil($totalCashCollections / $ccPerPage));
+        $ccCurrentPage        = max(1, min($ccTotalPages, $page));
+        $ccOffset             = ($ccCurrentPage - 1) * $ccPerPage;
+        $pagedCashCollections = array_slice($allCollections, $ccOffset, $ccPerPage);
+
+        $records              = $pagedCashCollections;
+        $totalItems           = $totalCashCollections;
+        $totalPages           = $ccTotalPages;
+        $page                 = $ccCurrentPage;
+    }
+} elseif ($activeTab === 'maintenance') {
+    $result     = $archiveModel->getMaintenanceHistory($filters, $page, $perPage, $ownerId);
+    $records    = $result['items'];
+    $totalItems = $result['total_items'];
+    $totalPages = $result['total_pages'];
+    $page       = $result['page'];
+} else {
+    $result     = $archiveModel->getConfigurationHistory($filters, $page, $perPage, $ownerId, $user['role'] ?? null);
+    $records    = $result['items'];
+    $totalItems = $result['total_items'];
+    $totalPages = $result['total_pages'];
+    $page       = $result['page'];
+}
 
 /**
  * Helper to build URL preserving filters and active tab.
@@ -174,7 +291,7 @@ if (!function_exists('build_archive_url')) {
                         <i class="bi bi-clock-history me-2"></i><?= term('history', 'History') ?>
                     </h1>
                     <p class="page-subtitle">
-                        Searchable records of completed transactions, maintenance events, and service configuration changes.
+                        Searchable records of completed transactions, cash collections, maintenance events, and service configuration changes.
                     </p>
                 </div>
                 <div class="page-header-actions">
@@ -187,19 +304,19 @@ if (!function_exists('build_archive_url')) {
                 </div>
             </div>
 
-            <!-- Tab Navigation -->
+            <!-- Top-Level Tab Navigation -->
             <div class="archive-tab-nav">
-                <a href="<?= build_archive_url(['tab' => 'transactions', 'page' => 1]) ?>"
+                <a href="<?= build_archive_url(['tab' => 'transactions', 'section' => 'records', 'page' => 1]) ?>"
                    class="archive-tab-btn <?= $activeTab === 'transactions' ? 'active' : '' ?>">
                     <i class="bi bi-cash-coin"></i>
                     <span>Transaction History</span>
                 </a>
-                <a href="<?= build_archive_url(['tab' => 'maintenance', 'page' => 1]) ?>"
+                <a href="<?= build_archive_url(['tab' => 'maintenance', 'section' => null, 'page' => 1, 'service' => null, 'status' => null, 'search' => null, 'date_from' => null, 'date_to' => null]) ?>"
                    class="archive-tab-btn <?= $activeTab === 'maintenance' ? 'active' : '' ?>">
                     <i class="bi bi-wrench-adjustable-circle"></i>
                     <span>Maintenance History</span>
                 </a>
-                <a href="<?= build_archive_url(['tab' => 'configuration', 'page' => 1]) ?>"
+                <a href="<?= build_archive_url(['tab' => 'configuration', 'section' => null, 'page' => 1, 'service' => null, 'status' => null, 'search' => null, 'date_from' => null, 'date_to' => null]) ?>"
                    class="archive-tab-btn <?= $activeTab === 'configuration' ? 'active' : '' ?>">
                     <i class="bi bi-sliders"></i>
                     <span>Configuration History</span>
@@ -207,137 +324,51 @@ if (!function_exists('build_archive_url')) {
             </div>
 
             <?php if ($activeTab === 'transactions'): ?>
-            <!-- Summary Cards Row: Total Sales | Completed Transactions | Water Sales | Soap Sales -->
-            <div class="row g-4 mb-4">
-
-                <!-- 1. Total Sales Amount -->
-                <div class="col-12 col-sm-6 col-xl-3">
-                    <div class="stat-card stat-card-sales">
-                        <div class="stat-card-body">
-                            <div class="stat-card-info">
-                                <p class="stat-card-label text-white">Total Sales</p>
-                                <h3 class="stat-card-value text-success"><?= format_currency($historySummary['total_revenue']) ?></h3>
-                                <p class="stat-card-trend text-light">
-                                    <span class="trend-badge trend-up">
-                                        <i class="bi bi-check-circle-fill"></i> Verified
-                                    </span>
-                                    <?= number_format($historySummary['completed_count']) ?> completed tx
-                                </p>
-                            </div>
-                            <div class="stat-card-icon">
-                                <i class="bi bi-cash-stack"></i>
-                            </div>
-                        </div>
-                        <div class="stat-card-footer">
-                            <span class="stat-card-link text-light">
-                                Verified completed revenue
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 2. Completed Transactions -->
-                <div class="col-12 col-sm-6 col-xl-3">
-                    <div class="stat-card stat-card-online">
-                        <div class="stat-card-body">
-                            <div class="stat-card-info">
-                                <p class="stat-card-label text-white">Completed Transactions</p>
-                                <h3 class="stat-card-value text-white"><?= number_format($historySummary['completed_count']) ?></h3>
-                                <p class="stat-card-trend text-light">
-                                    <span class="trend-badge trend-neutral">
-                                        <i class="bi bi-receipt"></i> Total Logged
-                                    </span>
-                                    <?= number_format($historySummary['transaction_count']) ?> all statuses
-                                </p>
-                            </div>
-                            <div class="stat-card-icon">
-                                <i class="bi bi-receipt-cutoff"></i>
-                            </div>
-                        </div>
-                        <div class="stat-card-footer">
-                            <span class="stat-card-link text-light">
-                                <?= $historySummary['transaction_count'] > 0 ? round(($historySummary['completed_count'] / $historySummary['transaction_count']) * 100, 1) : 100 ?>% completion rate
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 3. Water Service Sales -->
-                <div class="col-12 col-sm-6 col-xl-3">
-                    <div class="stat-card stat-card-notif" style="border-top-color: #38bdf8;">
-                        <div class="stat-card-body">
-                            <div class="stat-card-info">
-                                <p class="stat-card-label text-white">Water Sales</p>
-                                <h3 class="stat-card-value" style="color: #38bdf8;"><?= format_currency($historySummary['water_revenue']) ?></h3>
-                                <p class="stat-card-trend text-light">
-                                    <span class="trend-badge trend-neutral">
-                                        <i class="bi bi-droplet-fill text-info"></i> <?= number_format($historySummary['water_count']) ?> sales
-                                    </span>
-                                    water service
-                                </p>
-                            </div>
-                            <div class="stat-card-icon" style="background: rgba(56,189,248,.1); color: #38bdf8;">
-                                <i class="bi bi-droplet-fill"></i>
-                            </div>
-                        </div>
-                        <div class="stat-card-footer">
-                            <a href="<?= build_archive_url(['service' => 'water', 'page' => 1]) ?>" class="stat-card-link text-light">
-                                Filter water history <i class="bi bi-arrow-right ms-1"></i>
-                            </a>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 4. Soap Service Sales -->
-                <div class="col-12 col-sm-6 col-xl-3">
-                    <div class="stat-card stat-card-notif" style="border-top-color: #c084fc;">
-                        <div class="stat-card-body">
-                            <div class="stat-card-info">
-                                <p class="stat-card-label text-white">Soap Sales</p>
-                                <h3 class="stat-card-value" style="color: #c084fc;"><?= format_currency($historySummary['soap_revenue']) ?></h3>
-                                <p class="stat-card-trend text-light">
-                                    <span class="trend-badge trend-neutral">
-                                        <i class="bi bi-stars text-warning"></i> <?= number_format($historySummary['soap_count']) ?> sales
-                                    </span>
-                                    soap service
-                                </p>
-                            </div>
-                            <div class="stat-card-icon" style="background: rgba(192,132,252,.1); color: #c084fc;">
-                                <i class="bi bi-stars"></i>
-                            </div>
-                        </div>
-                        <div class="stat-card-footer">
-                            <a href="<?= build_archive_url(['service' => 'soap', 'page' => 1]) ?>" class="stat-card-link text-light">
-                                Filter soap history <i class="bi bi-arrow-right ms-1"></i>
-                            </a>
-                        </div>
-                    </div>
-                </div>
-
+            <!-- Secondary Sub-Tab Navigation inside Transaction History -->
+            <div class="archive-subtab-nav mb-4" role="tablist" aria-label="Transaction History Sub-sections">
+                <a href="<?= build_archive_url(['tab' => 'transactions', 'section' => 'records', 'page' => 1]) ?>"
+                   class="archive-subtab-btn <?= $activeSection === 'records' ? 'active' : '' ?>"
+                   role="tab"
+                   aria-selected="<?= $activeSection === 'records' ? 'true' : 'false' ?>">
+                    <?= lucide_icon('receipt', 'me-1.5') ?>
+                    <span>Transaction History</span><!-- Transaction Records -->
+                </a>
+                <a href="<?= build_archive_url(['tab' => 'transactions', 'section' => 'collections', 'page' => 1, 'status' => null, 'service' => null, 'search' => null, 'date_from' => null, 'date_to' => null]) ?>#cashCollectionsArchive"
+                   class="archive-subtab-btn <?= $activeSection === 'collections' ? 'active' : '' ?>"
+                   role="tab"
+                   aria-selected="<?= $activeSection === 'collections' ? 'true' : 'false' ?>">
+                    <?= lucide_icon('wallet', 'me-1.5') ?>
+                    <span>Cash Collections</span>
+                </a>
             </div>
             <?php endif; ?>
 
-            <!-- Simple Filter Card -->
+            <!-- ======================================================== -->
+            <!-- SECTION 1A: TRANSACTION RECORDS                          -->
+            <!-- ======================================================== -->
+            <?php if ($activeTab === 'transactions' && $activeSection === 'records'): ?>
+
+            <!-- Transaction Filter Card -->
             <div class="tx-filter-card mb-4">
                 <form method="get" action="archive.php" class="row g-3 align-items-end">
-                    <input type="hidden" name="tab" value="<?= e($activeTab) ?>">
+                    <input type="hidden" name="tab" value="transactions">
+                    <input type="hidden" name="section" value="records">
 
                     <!-- Search Input -->
-                    <div class="col-12 <?= in_array($activeTab, ['transactions', 'configuration'], true) ? 'col-md-4 col-xl-4' : 'col-md-5 col-xl-5' ?>">
+                    <div class="col-12 col-md-3 col-xl-2">
                         <label class="form-label text-muted small mb-1">Search</label>
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text dark-input" style="border-right: 0;">
-                                <i class="bi bi-search text-muted"></i>
+                        <div class="input-group input-group-sm history-search-group">
+                            <span class="history-search-icon" aria-hidden="true">
+                                <?= lucide_icon('search', 'text-muted') ?>
                             </span>
-                            <input type="text" class="form-control dark-input" name="search"
-                                   placeholder="<?= $activeTab === 'transactions' ? 'Search ID (#00001) or service...' : ($activeTab === 'maintenance' ? 'Search maintenance name or notes...' : 'Search service or user...') ?>"
-                                   value="<?= e($search) ?>" style="border-left: 0;">
+                            <input type="text" class="form-control form-control-sm dark-input" name="search"
+                                   placeholder="Search ID (#00001) or service..."
+                                   value="<?= e($search) ?>">
                         </div>
                     </div>
 
-                    <!-- Service Filter (where applicable) -->
-                    <?php if (in_array($activeTab, ['transactions', 'configuration'], true)): ?>
-                    <div class="col-12 col-sm-6 col-md-3 col-xl-2">
+                    <!-- Service Filter -->
+                    <div class="col-12 col-sm-6 col-md-2 col-xl-2">
                         <label class="form-label text-muted small mb-1">Service</label>
                         <select class="form-select form-select-sm dark-input" name="service">
                             <option value="all" <?= $service === 'all' ? 'selected' : '' ?>>All Services</option>
@@ -348,16 +379,26 @@ if (!function_exists('build_archive_url')) {
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <?php endif; ?>
+
+                    <!-- Status Filter -->
+                    <div class="col-12 col-sm-6 col-md-2 col-xl-2">
+                        <label class="form-label text-muted small mb-1">Status</label>
+                        <select class="form-select form-select-sm dark-input" name="status">
+                            <option value="all" <?= $status === 'all' ? 'selected' : '' ?>>All Statuses</option>
+                            <option value="completed" <?= $status === 'completed' ? 'selected' : '' ?>>Completed</option>
+                            <option value="incomplete" <?= in_array($status, ['incomplete', 'interrupted'], true) ? 'selected' : '' ?>>Incomplete</option>
+                            <option value="unsuccessful" <?= in_array($status, ['unsuccessful', 'cancelled', 'failed'], true) ? 'selected' : '' ?>>Unsuccessful</option>
+                        </select>
+                    </div>
 
                     <!-- Date From -->
-                    <div class="col-12 col-sm-6 <?= in_array($activeTab, ['transactions', 'configuration'], true) ? 'col-md-2 col-xl-2' : 'col-md-3 col-xl-3' ?>">
+                    <div class="col-12 col-sm-6 col-md-2 col-xl-2">
                         <label class="form-label text-muted small mb-1">From Date</label>
                         <input type="date" class="form-control form-control-sm dark-input" name="date_from" value="<?= e($dateFrom) ?>">
                     </div>
 
                     <!-- Date To -->
-                    <div class="col-12 col-sm-6 <?= in_array($activeTab, ['transactions', 'configuration'], true) ? 'col-md-2 col-xl-2' : 'col-md-3 col-xl-3' ?>">
+                    <div class="col-12 col-sm-6 col-md-2 col-xl-2">
                         <label class="form-label text-muted small mb-1">To Date</label>
                         <input type="date" class="form-control form-control-sm dark-input" name="date_to" value="<?= e($dateTo) ?>">
                     </div>
@@ -367,8 +408,8 @@ if (!function_exists('build_archive_url')) {
                         <button type="submit" class="btn btn-primary btn-sm flex-fill">
                             <i class="bi bi-funnel me-1"></i>Apply
                         </button>
-                        <?php if (!empty($search) || $service !== 'all' || !empty($dateFrom) || !empty($dateTo)): ?>
-                        <a href="archive.php?tab=<?= e($activeTab) ?>" class="btn btn-outline-secondary btn-sm" title="Clear Filters">
+                        <?php if (!empty($search) || $service !== 'all' || $status !== 'all' || !empty($dateFrom) || !empty($dateTo)): ?>
+                        <a href="archive.php?tab=transactions&section=records" class="btn btn-outline-secondary btn-sm" title="Clear Filters">
                             <i class="bi bi-x-circle"></i>
                         </a>
                         <?php endif; ?>
@@ -376,47 +417,37 @@ if (!function_exists('build_archive_url')) {
                 </form>
             </div>
 
-            <!-- Main Records Panel -->
-            <div class="tx-table-card archive-table-card mb-4">
+            <!-- Transaction Records Table Panel -->
+            <div class="tx-table-card archive-table-card mb-4" style="display: flex; flex-direction: column; min-height: 944px;">
                 <div class="panel-header d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
                     <div>
-                        <h5 class="panel-title mb-1">
-                            <?php if ($activeTab === 'transactions'): ?>
-                                <i class="bi bi-cash-coin me-2"></i>Transaction History
-                            <?php elseif ($activeTab === 'maintenance'): ?>
-                                <i class="bi bi-wrench-adjustable-circle me-2"></i>Maintenance History
-                            <?php else: ?>
-                                <i class="bi bi-sliders me-2"></i>Configuration History
-                            <?php endif; ?>
+                        <h5 class="panel-title mb-1 d-flex align-items-center">
+                            <?= lucide_icon('receipt', 'me-2 text-primary-vl') ?>Transaction Records
                         </h5>
                         <span class="text-muted small">
                             Showing <?= number_format(count($records)) ?> of <?= number_format($totalItems) ?> records
                         </span>
                     </div>
-                    <?php if ($activeTab === 'transactions'): ?>
                     <div class="d-flex align-items-center gap-2">
                         <a href="<?= build_archive_url(['export' => 'excel']) ?>" class="btn btn-sm btn-outline-success text-nowrap d-inline-flex align-items-center" title="Export filtered records to Excel">
-                            <i class="bi bi-file-earmark-excel me-1.5"></i>Export Excel
+                            <?= lucide_icon('download', 'me-1.5') ?>Export Excel
                         </a>
                     </div>
-                    <?php endif; ?>
                 </div>
 
-                <?php if (empty($records)): ?>
-                <div class="activity-empty py-5">
-                    <i class="bi bi-archive" style="font-size: 3rem; color: var(--vl-text-muted);"></i>
-                    <p class="text-muted mt-2">No historical archive records found matching your filters.</p>
-                    <?php if (!empty($search) || $service !== 'all' || !empty($dateFrom) || !empty($dateTo)): ?>
-                    <a href="archive.php?tab=<?= e($activeTab) ?>" class="btn btn-sm btn-outline-secondary mt-3">
-                        <i class="bi bi-arrow-counterclockwise me-1"></i>Clear Filters
-                    </a>
-                    <?php endif; ?>
-                </div>
-                <?php else: ?>
-
-                <!-- SECTION 1: TRANSACTION HISTORY -->
-                <?php if ($activeTab === 'transactions'): ?>
-                <div class="table-responsive">
+                <div class="table-responsive" style="flex: 1 0 auto; display: flex; flex-direction: column;">
+                    <?php if (empty($records)): ?>
+                    <div class="activity-empty py-5 text-center d-flex flex-column align-items-center justify-content-center" style="flex: 1 0 auto; min-height: 400px;">
+                        <?= lucide_icon('search', 'mb-3 opacity-50', ['style' => 'color: #64748B; width: 44px; height: 44px;']) ?>
+                        <h6 class="text-white fw-bold mb-1">No records match your filters</h6>
+                        <p class="text-muted small mb-3">Try adjusting your search criteria or date ranges.</p>
+                        <?php if (!empty($search) || $service !== 'all' || $status !== 'all' || !empty($dateFrom) || !empty($dateTo)): ?>
+                        <a href="archive.php?tab=transactions&section=records" class="btn btn-sm btn-outline-secondary">
+                            <?= lucide_icon('rotate-ccw', 'me-1') ?>Reset Filters
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                    <?php else: ?>
                     <table class="table table-dark table-hover align-middle mb-0" style="--bs-table-bg: transparent;">
                         <thead>
                             <tr style="border-bottom: 1px solid var(--vl-border); color: var(--vl-text-muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;">
@@ -432,87 +463,486 @@ if (!function_exists('build_archive_url')) {
                         <tbody>
                             <?php foreach ($records as $tx):
                                 $serviceIcon = match ($tx['service_key'] ?? '') {
-                                    'water' => 'bi-droplet-fill text-info',
-                                    'soap'  => 'bi-stars text-warning',
-                                    default => 'bi-gear-fill text-primary',
+                                    'water' => 'droplets',
+                                    'soap'  => 'sparkles',
+                                    default => 'cog',
+                                };
+                                $serviceColor = match ($tx['service_key'] ?? '') {
+                                    'water' => 'text-info',
+                                    'soap'  => 'text-warning',
+                                    default => 'text-primary',
+                                };
+                                $serviceDisplayName = match (strtolower($tx['service_key'] ?? '')) {
+                                    'water' => 'Water',
+                                    'soap'  => 'Soap',
+                                    default => preg_replace('/\s+Service$/i', '', $tx['service_name'] ?: 'Service'),
                                 };
                                 $statusBadge = match ($tx['status']) {
-                                    'completed' => 'tx-badge-completed',
-                                    'active'    => 'tx-badge-active',
-                                    'pending'   => 'tx-badge-pending',
-                                    'cancelled' => 'tx-badge-cancelled',
-                                    'failed'    => 'tx-badge-failed',
-                                    default     => 'tx-badge-pending',
+                                    'completed'   => 'tx-badge-completed',
+                                    'active'      => 'tx-badge-active',
+                                    'pending'     => 'tx-badge-pending',
+                                    'cancelled'   => 'tx-badge-cancelled',
+                                    'failed'      => 'tx-badge-failed',
+                                    'incomplete'  => 'tx-badge-incomplete',
+                                    'interrupted' => 'tx-badge-interrupted',
+                                    default       => 'tx-badge-pending',
                                 };
+                                $statusLabel = match (strtolower($tx['status'] ?? '')) {
+                                    'completed'   => 'Completed',
+                                    'incomplete'  => 'Incomplete',
+                                    'interrupted' => 'Interrupted',
+                                    'failed'      => 'Unsuccessful',
+                                    'active'      => 'Active',
+                                    'pending'     => 'Pending',
+                                    'cancelled'   => 'Cancelled',
+                                    default       => ucfirst(strtolower($tx['status'] ?? '')),
+                                };
+                                $machineDisplayName = preg_replace('/^VendoLink\s+/i', '', $tx['machine_name'] ?: 'Machine 01');
                             ?>
                             <tr style="border-bottom: 1px solid rgba(255,255,255,.04); font-size: .88rem;">
+                                <!-- Transaction ID -->
                                 <td class="ps-4">
-                                    <span class="tx-id"><?= e($tx['formatted_id']) ?></span>
+                                    <span class="tx-id text-white fw-bold"><?= e($tx['formatted_id']) ?></span>
                                 </td>
+
+                                <!-- Date & Time -->
                                 <td>
                                     <div class="text-light fw-medium">
-                                        <?= format_date($tx['created_at'], 'M j, Y g:i A') ?>
+                                        <?= format_date($tx['created_at'], 'M j, Y, g:i A') ?>
                                     </div>
-                                    <div class="tx-snapshot-tag">
+                                    <div class="text-muted small">
                                         <?= time_ago($tx['created_at']) ?>
                                     </div>
                                 </td>
+
+                                <!-- Machine -->
                                 <td>
                                     <div class="text-light fw-medium">
-                                        <?= e($tx['machine_name'] ?: 'VendoLink Machine 01') ?>
+                                        <?= e($machineDisplayName) ?>
                                     </div>
-                                    <div class="tx-snapshot-tag">
+                                    <div class="text-muted small">
                                         <?= e($tx['machine_location'] ?: 'Main Establishment') ?>
                                     </div>
                                 </td>
+
+                                <!-- Service -->
                                 <td>
-                                    <span class="d-inline-flex align-items-center gap-1">
-                                        <i class="bi <?= $serviceIcon ?>"></i>
-                                        <span class="text-light fw-medium"><?= e($tx['service_name'] ?: 'Service') ?></span>
+                                    <span class="d-inline-flex align-items-center gap-1.5">
+                                        <?= lucide_icon($serviceIcon, $serviceColor) ?>
+                                        <span class="text-light fw-medium"><?= e($serviceDisplayName) ?></span>
                                     </span>
                                 </td>
+
+                                <!-- Amount -->
                                 <td>
-                                    <span class="fw-bold text-success">
+                                    <span class="fw-bold text-success" style="font-size: .95rem;">
                                         <?= e($tx['amount_formatted']) ?>
                                     </span>
                                 </td>
+
+                                <!-- Purchased Time -->
                                 <td>
-                                    <div class="text-light fw-medium">
-                                        <i class="bi bi-clock-history me-1 text-primary-vl"></i>
-                                        <?= e($tx['purchased_time_label']) ?>
-                                    </div>
-                                    <div class="tx-snapshot-tag">
-                                        Snapshot: <?= e($tx['rate_snapshot_label']) ?>
-                                    </div>
+                                    <?php if ($tx['status'] === 'incomplete'): ?>
+                                        <div class="text-light fw-medium d-inline-flex align-items-center">
+                                            <?= lucide_icon('clock', 'me-1 text-warning') ?>
+                                            <?= e($tx['actual_time_label'] ?? '0s') ?> <span class="text-muted small ms-1">/ <?= e($tx['purchased_time_label']) ?></span>
+                                        </div>
+                                        <div class="text-warning small" style="font-size: 0.75rem;">
+                                            Ran <?= e($tx['actual_time_label'] ?? '0s') ?> before interruption
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="text-light fw-medium d-inline-flex align-items-center">
+                                            <?= lucide_icon('clock', 'me-1 text-primary-vl') ?>
+                                            <?= e($tx['purchased_time_label']) ?>
+                                        </div>
+                                    <?php endif; ?>
                                 </td>
+
+                                <!-- Status -->
                                 <td>
-                                    <span class="tx-badge <?= $statusBadge ?>">
-                                        <?= ucfirst(e($tx['status'])) ?>
-                                    </span>
+                                    <span class="tx-badge <?= $statusBadge ?>"><?= e($statusLabel) ?></span>
+                                    <?php if (!empty($tx['status_reason'])): ?>
+                                        <div class="text-muted mt-1" style="font-size: 0.72rem; max-width: 190px; line-height: 1.2;">
+                                            <?= e($tx['status_reason']) ?>
+                                        </div>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
-                            <?php
-                            $emptyRowsCount = max(0, $perPage - count($records));
-                            for ($i = 0; $i < $emptyRowsCount; $i++):
-                            ?>
-                            <tr class="tx-empty-row" aria-hidden="true">
-                                <td class="ps-4">&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                            </tr>
-                            <?php endfor; ?>
                         </tbody>
                     </table>
+
+                    <!-- Reserved Space Indicator (Shown when current page has fewer than 15 records) -->
+                    <?php if (count($records) < 15): ?>
+                    <div class="table-reserved-space text-center py-4 d-flex flex-column align-items-center justify-content-center" style="min-height: <?= max(100, (15 - count($records)) * 44) ?>px;">
+                        <?= lucide_icon('layers', 'layers-icon mb-2') ?>
+                        <div class="text-slate-400 fw-medium small">Reserved space for the remaining rows</div>
+                        <div class="small" style="color: #64748B;">No placeholder rows are displayed.</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php endif; ?>
                 </div>
 
-                <!-- SECTION 2: MAINTENANCE HISTORY -->
-                <?php elseif ($activeTab === 'maintenance'): ?>
-                <div class="table-responsive">
+                <!-- Anchored Pagination Controls at Bottom -->
+                <div class="tx-pagination" style="margin-top: auto;">
+                    <div class="text-muted small">
+                        <?php if ($totalItems > 0): ?>
+                            Page <strong><?= $page ?></strong> of <strong><?= $totalPages ?></strong> (Total <?= number_format($totalItems) ?> records)
+                        <?php else: ?>
+                            0 records found
+                        <?php endif; ?>
+                    </div>
+                    <nav aria-label="Transaction pagination">
+                        <ul class="pagination pagination-sm mb-0">
+                            <!-- Previous -->
+                            <li class="page-item <?= ($page <= 1 || $totalItems === 0) ? 'disabled' : '' ?>">
+                                <a class="page-link" href="<?= build_archive_url(['page' => $page - 1]) ?>" aria-label="Previous">
+                                    <span aria-hidden="true">&laquo;&nbsp;Prev</span>
+                                </a>
+                            </li>
+
+                            <!-- Page Numbers -->
+                            <?php
+                            if ($totalItems > 0):
+                                $startPage = max(1, $page - 2);
+                                $endPage   = min($totalPages, $page + 2);
+
+                                if ($startPage > 1) {
+                                    echo '<li class="page-item"><a class="page-link" href="' . build_archive_url(['page' => 1]) . '">1</a></li>';
+                                    if ($startPage > 2) {
+                                        echo '<li class="page-item disabled"><span class="page-link">&hellip;</span></li>';
+                                    }
+                                }
+
+                                for ($p = $startPage; $p <= $endPage; $p++): ?>
+                                <li class="page-item <?= $p === $page ? 'active' : '' ?>">
+                                    <a class="page-link" href="<?= build_archive_url(['page' => $p]) ?>"><?= $p ?></a>
+                                </li>
+                                <?php endfor;
+
+                                if ($endPage < $totalPages) {
+                                    if ($endPage < $totalPages - 1) {
+                                        echo '<li class="page-item disabled"><span class="page-link">&hellip;</span></li>';
+                                    }
+                                    echo '<li class="page-item"><a class="page-link" href="' . build_archive_url(['page' => $totalPages]) . '">' . $totalPages . '</a></li>';
+                                }
+                            endif;
+                            ?>
+
+                            <!-- Next -->
+                            <li class="page-item <?= ($page >= $totalPages || $totalItems === 0) ? 'disabled' : '' ?>">
+                                <a class="page-link" href="<?= build_archive_url(['page' => $page + 1]) ?>" aria-label="Next">
+                                    <span aria-hidden="true">Next&nbsp;&raquo;</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
+                </div>
+
+            </div>
+
+            <!-- ======================================================== -->
+            <!-- SECTION 1B: CASH COLLECTIONS                             -->
+            <!-- ======================================================== -->
+            <?php elseif ($activeTab === 'transactions' && $activeSection === 'collections'): ?>
+
+            <!-- Cash Collections Filter Card -->
+            <div class="tx-filter-card mb-4">
+                <form method="get" action="archive.php" class="row g-3 align-items-end">
+                    <input type="hidden" name="tab" value="transactions">
+                    <input type="hidden" name="section" value="collections">
+
+                    <!-- Search Input -->
+                    <div class="col-12 col-md-4 col-xl-4">
+                        <label class="form-label text-muted small mb-1 fw-medium">Search</label>
+                        <div class="input-group input-group-sm history-search-group">
+                            <span class="history-search-icon" aria-hidden="true">
+                                <?= lucide_icon('search', 'text-muted') ?>
+                            </span>
+                            <input type="text" class="form-control form-control-sm dark-input" name="search"
+                                   placeholder="<?= is_admin() ? 'Search notes, machine, or recorded by...' : 'Search notes or machine...' ?>"
+                                   value="<?= e($ccSearch) ?>">
+                        </div>
+                    </div>
+
+                    <!-- Date From -->
+                    <div class="col-12 col-sm-6 col-md-3 col-xl-3">
+                        <label class="form-label text-muted small mb-1 fw-medium">From Date</label>
+                        <input type="date" class="form-control form-control-sm dark-input text-white" name="date_from" value="<?= e($ccDateFrom) ?>">
+                    </div>
+
+                    <!-- Date To -->
+                    <div class="col-12 col-sm-6 col-md-3 col-xl-3">
+                        <label class="form-label text-muted small mb-1 fw-medium">To Date</label>
+                        <input type="date" class="form-control form-control-sm dark-input text-white" name="date_to" value="<?= e($ccDateTo) ?>">
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="col-12 col-sm-6 col-md-2 col-xl-2 d-flex gap-2">
+                        <button type="submit" class="btn btn-primary btn-sm flex-fill d-inline-flex align-items-center justify-content-center">
+                            <?= lucide_icon('filter', 'me-1') ?>Apply
+                        </button>
+                        <?php if (!empty($ccSearch) || !empty($ccDateFrom) || !empty($ccDateTo)): ?>
+                        <a href="archive.php?tab=transactions&section=collections" class="btn btn-outline-secondary btn-sm" title="Clear Filters">
+                            <?= lucide_icon('rotate-ccw') ?>
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Cash Collections Records Panel -->
+            <div class="tx-table-card archive-table-card mb-4" id="cashCollectionsArchive" style="display: flex; flex-direction: column; min-height: 944px;">
+                <div class="panel-header d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                    <div>
+                        <h5 class="panel-title mb-1 d-flex align-items-center">
+                            <?= lucide_icon('wallet', 'text-success me-2') ?>Cash Collections
+                        </h5>
+                        <span class="text-muted small">
+                            Showing <?= number_format(count($pagedCashCollections)) ?> of <?= number_format($totalCashCollections) ?> collection record<?= $totalCashCollections === 1 ? '' : 's' ?>
+                        </span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <a href="<?= build_archive_url(['export' => 'cash_collections']) ?>" class="btn btn-sm btn-outline-success text-nowrap d-inline-flex align-items-center" title="Export cash collection records to Excel">
+                            <?= lucide_icon('download', 'me-1.5') ?>Export Excel
+                        </a>
+                        <button type="button" class="btn btn-sm btn-success fw-semibold text-nowrap d-inline-flex align-items-center" data-bs-toggle="modal" data-bs-target="#recordCashModal">
+                            <?= lucide_icon('plus-circle', 'me-1.5') ?>Record Cash Collection
+                        </button>
+                    </div>
+                </div>
+
+                <div class="table-responsive" style="flex: 1 0 auto; display: flex; flex-direction: column;">
+                    <?php if (empty($pagedCashCollections)): ?>
+                    <div class="activity-empty py-5 text-center d-flex flex-column align-items-center justify-content-center" style="flex: 1 0 auto; min-height: 400px;">
+                        <?= lucide_icon('search', 'mb-3 opacity-50', ['style' => 'color: #64748B; width: 44px; height: 44px;']) ?>
+                        <h6 class="text-white fw-bold mb-1">No records match your filters</h6>
+                        <p class="text-muted small mb-3">Try adjusting your search criteria or date ranges.</p>
+                        <?php if (!empty($ccSearch) || !empty($ccDateFrom) || !empty($ccDateTo)): ?>
+                        <a href="archive.php?tab=transactions&section=collections" class="btn btn-sm btn-outline-secondary">
+                            <?= lucide_icon('rotate-ccw', 'me-1') ?>Reset Filters
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                    <?php else: ?>
+                    <table class="table table-dark table-hover align-middle mb-0" style="--bs-table-bg: transparent;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--vl-border); color: #94a3b8; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;">
+                                <th class="ps-4">Collection Date</th>
+                                <th>Machine</th>
+                                <?php if (is_admin()): ?>
+                                <th>Recorded By</th>
+                                <?php endif; ?>
+                                <th>Cash Collected</th>
+                                <th>Expected Sales</th>
+                                <th>Difference</th>
+                                <th>Result</th>
+                                <th class="pe-4">Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($pagedCashCollections as $cc): 
+                                $var = (float)($cc['variance_amount'] ?? 0);
+                                if ($var == 0) {
+                                    $reconBadgeClass = 'badge-matched';
+                                    $reconLabel      = 'Matched';
+                                    $reconIcon       = 'check-circle';
+                                } elseif ($var > 0) {
+                                    $reconBadgeClass = 'badge-above';
+                                    $reconLabel      = 'Above';
+                                    $reconIcon       = 'arrow-up-right';
+                                } else {
+                                    $reconBadgeClass = 'badge-below';
+                                    $reconLabel      = 'Below';
+                                    $reconIcon       = 'arrow-down-right';
+                                }
+                            ?>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,.04); font-size: .88rem;">
+                                <td class="ps-4 fw-bold text-light">
+                                    <?= format_date($cc['collected_at'], 'M d, Y, g:i A') ?>
+                                </td>
+                                <td>
+                                    <div class="text-light fw-medium">
+                                        <?= e(preg_replace('/^VendoLink\s+/i', '', $cc['machine_name'] ?: 'Machine 01')) ?>
+                                    </div>
+                                </td>
+                                <?php if (is_admin()): ?>
+                                <td class="small text-secondary">
+                                    <?= e($cc['full_name'] ?? '—') ?>
+                                </td>
+                                <?php endif; ?>
+                                <td class="fw-bold text-success font-monospace">
+                                    ₱<?= number_format((float)$cc['collected_amount'], 2) ?>
+                                </td>
+                                <td class="text-light font-monospace">
+                                    ₱<?= number_format((float)$cc['system_sales_amount'], 2) ?>
+                                </td>
+                                <td>
+                                    <span class="font-monospace fw-semibold <?= $var == 0 ? 'text-success' : ($var > 0 ? 'text-warning' : 'text-danger') ?>">
+                                        <?= $var > 0 ? '+₱' : ($var < 0 ? '-₱' : '₱') ?><?= number_format(abs($var), 2) ?>
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge badge-reconciliation <?= $reconBadgeClass ?>">
+                                        <?= lucide_icon($reconIcon, 'me-1') ?><?= $reconLabel ?>
+                                    </span>
+                                </td>
+                                <td class="pe-4 small text-secondary">
+                                    <?= e($cc['notes'] ?: '—') ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+
+                    <!-- Reserved Space Indicator (Shown when current page has fewer than 15 records) -->
+                    <?php if (count($pagedCashCollections) < 15): ?>
+                    <div class="table-reserved-space text-center py-4 d-flex flex-column align-items-center justify-content-center" style="min-height: <?= max(100, (15 - count($pagedCashCollections)) * 44) ?>px;">
+                        <?= lucide_icon('layers', 'layers-icon mb-2') ?>
+                        <div class="text-slate-400 fw-medium small">Reserved space for the remaining rows</div>
+                        <div class="small" style="color: #64748B;">No placeholder rows are displayed.</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Cash Collections Pagination Controls -->
+                <div class="tx-pagination" style="margin-top: auto;">
+                    <div class="text-muted small">
+                        <?php if ($totalCashCollections > 0): ?>
+                            Page <strong><?= $page ?></strong> of <strong><?= $ccTotalPages ?></strong> (Total <?= number_format($totalCashCollections) ?> record<?= $totalCashCollections === 1 ? '' : 's' ?>)
+                        <?php else: ?>
+                            0 records found
+                        <?php endif; ?>
+                    </div>
+                    <nav aria-label="Cash collections pagination">
+                        <ul class="pagination pagination-sm mb-0">
+                            <!-- Previous -->
+                            <li class="page-item <?= ($page <= 1 || $totalCashCollections === 0) ? 'disabled' : '' ?>">
+                                <a class="page-link" href="<?= build_archive_url(['page' => $page - 1]) ?>" aria-label="Previous">
+                                    <span aria-hidden="true">&laquo;&nbsp;Prev</span>
+                                </a>
+                            </li>
+
+                            <?php
+                            if ($totalCashCollections > 0):
+                                for ($cp = 1; $cp <= $ccTotalPages; $cp++): ?>
+                                <li class="page-item <?= $cp === $page ? 'active' : '' ?>">
+                                    <a class="page-link" href="<?= build_archive_url(['page' => $cp]) ?>"><?= $cp ?></a>
+                                </li>
+                                <?php endfor;
+                            endif;
+                            ?>
+
+                            <!-- Next -->
+                            <li class="page-item <?= ($page >= $ccTotalPages || $totalCashCollections === 0) ? 'disabled' : '' ?>">
+                                <a class="page-link" href="<?= build_archive_url(['page' => $page + 1]) ?>" aria-label="Next">
+                                    <span aria-hidden="true">Next&nbsp;&raquo;</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
+                </div>
+
+            </div>
+
+            <!-- ======================================================== -->
+            <!-- SECTION 2 & 3: MAINTENANCE & CONFIGURATION HISTORY        -->
+            <!-- ======================================================== -->
+            <?php else: ?>
+
+            <!-- Maintenance / Configuration Filter Card -->
+            <div class="tx-filter-card mb-4">
+                <form method="get" action="archive.php" class="row g-3 align-items-end">
+                    <input type="hidden" name="tab" value="<?= e($activeTab) ?>">
+
+                    <!-- Search Input -->
+                    <div class="col-12 <?= $activeTab === 'configuration' ? 'col-md-4 col-xl-4' : 'col-md-5 col-xl-5' ?>">
+                        <label class="form-label text-muted small mb-1">Search</label>
+                        <div class="input-group input-group-sm history-search-group">
+                            <span class="history-search-icon" aria-hidden="true">
+                                <?= lucide_icon('search', 'text-muted') ?>
+                            </span>
+                            <input type="text" class="form-control form-control-sm dark-input" name="search"
+                                   placeholder="<?= $activeTab === 'maintenance' ? 'Search maintenance name or notes...' : ($activeTab === 'configuration' && !is_admin() ? 'Search service or machine...' : 'Search service, user, or machine...') ?>"
+                                   value="<?= e($search) ?>">
+                        </div>
+                    </div>
+
+                    <!-- Service Filter (Configuration tab) -->
+                    <?php if ($activeTab === 'configuration'): ?>
+                    <div class="col-12 col-sm-6 col-md-3 col-xl-2">
+                        <label class="form-label text-muted small mb-1">Service</label>
+                        <select class="form-select form-select-sm dark-input" name="service">
+                            <option value="all" <?= $service === 'all' ? 'selected' : '' ?>>All Services</option>
+                            <?php foreach ($servicesList as $svc): ?>
+                                <option value="<?= e($svc['service_key']) ?>" <?= $service === $svc['service_key'] ? 'selected' : '' ?>>
+                                    <?= e($svc['name']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Date From -->
+                    <div class="col-12 col-sm-6 <?= $activeTab === 'configuration' ? 'col-md-2 col-xl-2' : 'col-md-3 col-xl-3' ?>">
+                        <label class="form-label text-muted small mb-1">From Date</label>
+                        <input type="date" class="form-control form-control-sm dark-input" name="date_from" value="<?= e($dateFrom) ?>">
+                    </div>
+
+                    <!-- Date To -->
+                    <div class="col-12 col-sm-6 <?= $activeTab === 'configuration' ? 'col-md-2 col-xl-2' : 'col-md-3 col-xl-3' ?>">
+                        <label class="form-label text-muted small mb-1">To Date</label>
+                        <input type="date" class="form-control form-control-sm dark-input" name="date_to" value="<?= e($dateTo) ?>">
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="col-12 col-sm-6 <?= $activeTab === 'configuration' ? 'col-md-1 col-xl-2' : 'col-md-1 col-xl-1' ?> d-flex gap-2">
+                        <button type="submit" class="btn btn-primary btn-sm flex-fill">
+                            <i class="bi bi-funnel me-1"></i>Apply
+                        </button>
+                        <?php if (!empty($search) || $service !== 'all' || !empty($dateFrom) || !empty($dateTo)): ?>
+                        <a href="archive.php?tab=<?= e($activeTab) ?>" class="btn btn-outline-secondary btn-sm" title="Clear Filters">
+                            <i class="bi bi-x-circle"></i>
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Maintenance / Configuration Records Panel -->
+            <div class="tx-table-card archive-table-card mb-4" style="display: flex; flex-direction: column; min-height: 944px;">
+                <div class="panel-header d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                    <div>
+                        <h5 class="panel-title mb-1 d-flex align-items-center">
+                            <?php if ($activeTab === 'maintenance'): ?>
+                                <?= lucide_icon('wrench', 'me-2 text-primary-vl') ?>Maintenance History
+                            <?php else: ?>
+                                <?= lucide_icon('sliders', 'me-2 text-primary-vl') ?>Configuration History
+                            <?php endif; ?>
+                        </h5>
+                        <span class="text-muted small">
+                            Showing <?= number_format(count($records)) ?> of <?= number_format($totalItems) ?> records
+                        </span>
+                    </div>
+                </div>
+
+                <div class="table-responsive" style="flex: 1 0 auto; display: flex; flex-direction: column;">
+                    <?php if (empty($records)): ?>
+                    <div class="activity-empty py-5 text-center d-flex flex-column align-items-center justify-content-center" style="flex: 1 0 auto; min-height: 400px;">
+                        <?= lucide_icon('search', 'mb-3 opacity-50', ['style' => 'color: #64748B; width: 44px; height: 44px;']) ?>
+                        <h6 class="text-white fw-bold mb-1">No records match your filters</h6>
+                        <p class="text-muted small mb-3">Try adjusting your search criteria or date ranges.</p>
+                        <?php if (!empty($search) || $service !== 'all' || !empty($dateFrom) || !empty($dateTo)): ?>
+                        <a href="archive.php?tab=<?= e($activeTab) ?>" class="btn btn-sm btn-outline-secondary">
+                            <?= lucide_icon('rotate-ccw', 'me-1') ?>Reset Filters
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                    <?php else: ?>
+
+                    <!-- SECTION 2: MAINTENANCE HISTORY -->
+                    <?php if ($activeTab === 'maintenance'): ?>
                     <table class="table table-dark table-hover align-middle mb-0" style="--bs-table-bg: transparent;">
                         <thead>
                             <tr style="border-bottom: 1px solid var(--vl-border); color: var(--vl-text-muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;">
@@ -528,8 +958,8 @@ if (!function_exists('build_archive_url')) {
                             <?php foreach ($records as $mh): ?>
                             <tr style="border-bottom: 1px solid rgba(255,255,255,.04); font-size: .88rem;">
                                 <td class="ps-4">
-                                    <div class="text-light fw-bold">
-                                        <i class="bi bi-wrench-adjustable-circle me-1 text-primary-vl"></i>
+                                    <div class="text-light fw-bold d-inline-flex align-items-center">
+                                        <?= lucide_icon('wrench', 'me-1 text-primary-vl') ?>
                                         <?= e($mh['maintenance_name']) ?>
                                     </div>
                                     <div class="tx-snapshot-tag">
@@ -538,7 +968,7 @@ if (!function_exists('build_archive_url')) {
                                 </td>
                                 <td>
                                     <div class="text-light fw-medium">
-                                        <?= e($mh['machine_name'] ?: 'VendoLink Machine 01') ?>
+                                        <?= e(preg_replace('/^VendoLink\s+/i', '', $mh['machine_name'] ?: 'Machine 01')) ?>
                                     </div>
                                     <div class="tx-snapshot-tag">
                                         Applies to: <?= e($mh['service_label']) ?>
@@ -553,8 +983,8 @@ if (!function_exists('build_archive_url')) {
                                     </div>
                                 </td>
                                 <td>
-                                    <span class="badge bg-secondary-subtle text-light border border-secondary font-monospace">
-                                        <i class="bi bi-stopwatch me-1"></i><?= e($mh['runtime_label']) ?>
+                                    <span class="badge bg-secondary-subtle text-light border border-secondary font-monospace d-inline-flex align-items-center">
+                                        <?= lucide_icon('clock', 'me-1') ?><?= e($mh['runtime_label']) ?>
                                     </span>
                                 </td>
                                 <td>
@@ -563,8 +993,8 @@ if (!function_exists('build_archive_url')) {
                                     </span>
                                 </td>
                                 <td>
-                                    <div class="text-light fw-medium">
-                                        <i class="bi bi-person-circle me-1 text-muted"></i>
+                                    <div class="text-light fw-medium d-inline-flex align-items-center">
+                                        <?= lucide_icon('user', 'me-1 text-muted') ?>
                                         <?= e($mh['completed_by_name'] ?: 'System') ?>
                                     </div>
                                     <?php if (!empty($mh['completed_by_role'])): ?>
@@ -575,73 +1005,66 @@ if (!function_exists('build_archive_url')) {
                                 </td>
                             </tr>
                             <?php endforeach; ?>
-                            <?php
-                            $emptyRowsCount = max(0, $perPage - count($records));
-                            for ($i = 0; $i < $emptyRowsCount; $i++):
-                            ?>
-                            <tr class="tx-empty-row" aria-hidden="true">
-                                <td class="ps-4">&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                            </tr>
-                            <?php endfor; ?>
                         </tbody>
                     </table>
-                </div>
 
-                <!-- SECTION 3: CONFIGURATION HISTORY -->
-                <?php else: ?>
-                <div class="table-responsive">
+                    <!-- SECTION 3: CONFIGURATION HISTORY -->
+                    <?php else: ?>
                     <table class="table table-dark table-hover align-middle mb-0" style="--bs-table-bg: transparent;">
                         <thead>
                             <tr style="border-bottom: 1px solid var(--vl-border); color: var(--vl-text-muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;">
                                 <th class="ps-4">Service</th>
                                 <th>Previous Configuration</th>
                                 <th>New Configuration</th>
+                                <?php if (is_admin()): ?>
                                 <th>Changed By</th>
+                                <?php endif; ?>
                                 <th>Date &amp; Time</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($records as $ch):
                                 $serviceIcon = match ($ch['service_key'] ?? '') {
-                                    'water' => 'bi-droplet-fill text-info',
-                                    'soap'  => 'bi-stars text-warning',
-                                    default => 'bi-gear-fill text-primary',
+                                    'water' => 'droplets',
+                                    'soap'  => 'sparkles',
+                                    default => 'cog',
+                                };
+                                $serviceColor = match ($ch['service_key'] ?? '') {
+                                    'water' => 'text-info',
+                                    'soap'  => 'text-warning',
+                                    default => 'text-primary',
                                 };
                             ?>
                             <tr style="border-bottom: 1px solid rgba(255,255,255,.04); font-size: .88rem;">
                                 <td class="ps-4">
                                     <span class="d-inline-flex align-items-center gap-1">
-                                        <i class="bi <?= $serviceIcon ?>"></i>
+                                        <?= lucide_icon($serviceIcon, $serviceColor) ?>
                                         <strong class="text-light"><?= e($ch['service_name']) ?></strong>
                                     </span>
                                     <div class="tx-snapshot-tag">
-                                        <?= e($ch['machine_name'] ?: 'VendoLink Machine 01') ?>
+                                        <?= e(preg_replace('/^VendoLink\s+/i', '', $ch['machine_name'] ?: 'Machine 01')) ?>
                                     </div>
                                 </td>
                                 <td>
-                                    <div class="text-danger-emphasis fw-medium">
-                                        <i class="bi bi-dash-circle me-1"></i><?= e($ch['previous_label']) ?>
+                                    <div class="text-danger-emphasis fw-medium d-inline-flex align-items-center">
+                                        <?= lucide_icon('minus-circle', 'me-1') ?><?= e($ch['previous_label']) ?>
                                     </div>
                                     <div class="tx-snapshot-tag">
                                         State: <?= $ch['previous_is_enabled'] ? 'Enabled' : 'Disabled' ?>
                                     </div>
                                 </td>
                                 <td>
-                                    <div class="text-success fw-medium">
-                                        <i class="bi bi-arrow-right-circle me-1"></i><?= e($ch['new_label']) ?>
+                                    <div class="text-success fw-medium d-inline-flex align-items-center">
+                                        <?= lucide_icon('arrow-right-circle', 'me-1') ?><?= e($ch['new_label']) ?>
                                     </div>
                                     <div class="tx-snapshot-tag">
                                         State: <?= $ch['new_is_enabled'] ? 'Enabled' : 'Disabled' ?>
                                     </div>
                                 </td>
+                                <?php if (is_admin()): ?>
                                 <td>
-                                    <div class="text-light fw-medium">
-                                        <i class="bi bi-person-badge me-1 text-muted"></i>
+                                    <div class="text-light fw-medium d-inline-flex align-items-center">
+                                        <?= lucide_icon('user', 'me-1 text-muted') ?>
                                         <?= e($ch['changed_by_name'] ?: 'Administrator') ?>
                                     </div>
                                     <?php if (!empty($ch['changed_by_role'])): ?>
@@ -650,6 +1073,7 @@ if (!function_exists('build_archive_url')) {
                                     </div>
                                     <?php endif; ?>
                                 </td>
+                                <?php endif; ?>
                                 <td>
                                     <div class="text-light fw-medium">
                                         <?= format_date($ch['created_at'], 'M j, Y g:i A') ?>
@@ -660,33 +1084,34 @@ if (!function_exists('build_archive_url')) {
                                 </td>
                             </tr>
                             <?php endforeach; ?>
-                            <?php
-                            $emptyRowsCount = max(0, $perPage - count($records));
-                            for ($i = 0; $i < $emptyRowsCount; $i++):
-                            ?>
-                            <tr class="tx-empty-row" aria-hidden="true">
-                                <td class="ps-4">&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                                <td>&nbsp;</td>
-                            </tr>
-                            <?php endfor; ?>
                         </tbody>
                     </table>
+                    <?php endif; ?>
+
+                    <!-- Reserved Space Indicator (Shown when current page has fewer than 15 records) -->
+                    <?php if (count($records) < 15): ?>
+                    <div class="table-reserved-space text-center py-4 d-flex flex-column align-items-center justify-content-center" style="min-height: <?= max(100, (15 - count($records)) * 44) ?>px;">
+                        <?= lucide_icon('layers', 'layers-icon mb-2') ?>
+                        <div class="text-slate-400 fw-medium small">Reserved space for the remaining rows</div>
+                        <div class="small" style="color: #64748B;">No placeholder rows are displayed.</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php endif; ?>
                 </div>
-                <?php endif; ?>
 
                 <!-- Pagination Controls -->
-                <?php if ($totalPages > 1): ?>
-                <div class="tx-pagination">
+                <div class="tx-pagination" style="margin-top: auto;">
                     <div class="text-muted small">
-                        Page <strong><?= $page ?></strong> of <strong><?= $totalPages ?></strong> (Total <?= number_format($totalItems) ?> records)
+                        <?php if ($totalItems > 0): ?>
+                            Page <strong><?= $page ?></strong> of <strong><?= $totalPages ?></strong> (Total <?= number_format($totalItems) ?> records)
+                        <?php else: ?>
+                            0 records found
+                        <?php endif; ?>
                     </div>
                     <nav aria-label="Archive pagination">
                         <ul class="pagination pagination-sm mb-0">
                             <!-- Previous -->
-                            <li class="page-item <?= $page <= 1 ? 'disabled' : '' ?>">
+                            <li class="page-item <?= ($page <= 1 || $totalItems === 0) ? 'disabled' : '' ?>">
                                 <a class="page-link" href="<?= build_archive_url(['page' => $page - 1]) ?>" aria-label="Previous">
                                     <span aria-hidden="true">&laquo;&nbsp;Prev</span>
                                 </a>
@@ -694,32 +1119,34 @@ if (!function_exists('build_archive_url')) {
 
                             <!-- Page Numbers -->
                             <?php
-                            $startPage = max(1, $page - 2);
-                            $endPage   = min($totalPages, $page + 2);
+                            if ($totalItems > 0):
+                                $startPage = max(1, $page - 2);
+                                $endPage   = min($totalPages, $page + 2);
 
-                            if ($startPage > 1) {
-                                echo '<li class="page-item"><a class="page-link" href="' . build_archive_url(['page' => 1]) . '">1</a></li>';
-                                if ($startPage > 2) {
-                                    echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
+                                if ($startPage > 1) {
+                                    echo '<li class="page-item"><a class="page-link" href="' . build_archive_url(['page' => 1]) . '">1</a></li>';
+                                    if ($startPage > 2) {
+                                        echo '<li class="page-item disabled"><span class="page-link">&hellip;</span></li>';
+                                    }
                                 }
-                            }
 
-                            for ($p = $startPage; $p <= $endPage; $p++): ?>
-                            <li class="page-item <?= $p === $page ? 'active' : '' ?>">
-                                <a class="page-link" href="<?= build_archive_url(['page' => $p]) ?>"><?= $p ?></a>
-                            </li>
-                            <?php endfor;
+                                for ($p = $startPage; $p <= $endPage; $p++): ?>
+                                <li class="page-item <?= $p === $page ? 'active' : '' ?>">
+                                    <a class="page-link" href="<?= build_archive_url(['page' => $p]) ?>"><?= $p ?></a>
+                                </li>
+                                <?php endfor;
 
-                            if ($endPage < $totalPages) {
-                                if ($endPage < $totalPages - 1) {
-                                    echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
+                                if ($endPage < $totalPages) {
+                                    if ($endPage < $totalPages - 1) {
+                                        echo '<li class="page-item disabled"><span class="page-link">&hellip;</span></li>';
+                                    }
+                                    echo '<li class="page-item"><a class="page-link" href="' . build_archive_url(['page' => $totalPages]) . '">' . $totalPages . '</a></li>';
                                 }
-                                echo '<li class="page-item"><a class="page-link" href="' . build_archive_url(['page' => $totalPages]) . '">' . $totalPages . '</a></li>';
-                            }
+                            endif;
                             ?>
 
                             <!-- Next -->
-                            <li class="page-item <?= $page >= $totalPages ? 'disabled' : '' ?>">
+                            <li class="page-item <?= ($page >= $totalPages || $totalItems === 0) ? 'disabled' : '' ?>">
                                 <a class="page-link" href="<?= build_archive_url(['page' => $page + 1]) ?>" aria-label="Next">
                                     <span aria-hidden="true">Next&nbsp;&raquo;</span>
                                 </a>
@@ -727,131 +1154,56 @@ if (!function_exists('build_archive_url')) {
                         </ul>
                     </nav>
                 </div>
-                <?php endif; ?>
-
-                <?php endif; ?>
 
             </div>
 
-            <!-- CASH COLLECTIONS PANEL -->
-            <?php if ($activeTab === 'transactions'): ?>
-            <div class="tx-table-card collection-table-card mt-4" id="cashCollectionsArchive">
-                <div class="panel-header d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-3 py-3 px-3">
-                    <h5 class="panel-title text-white d-flex align-items-center mb-0">
-                        <i class="bi bi-wallet2 text-success me-2"></i><?= term('cash_collections', 'Cash Collections') ?>
-                    </h5>
-                    <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1.5 fw-semibold">
-                            <?= number_format($totalCashCollections) ?> Collection Record(s)
-                        </span>
-                        <a href="<?= BASE_URL ?>/dashboard/sales.php#cashCollectionsTracker" class="btn btn-sm btn-outline-success fw-semibold d-inline-flex align-items-center">
-                            <i class="bi bi-wallet2 me-1.5"></i>Record Cash Collection
-                        </a>
-                    </div>
-                </div>
-
-                <?php if (empty($cashCollections)): ?>
-                <div class="activity-empty py-5 text-center">
-                    <i class="bi bi-wallet2 fs-1 text-muted mb-3 opacity-50"></i>
-                    <p class="text-muted mt-2 mb-0">No cash collection records found matching your filters.</p>
-                </div>
-                <?php else: ?>
-                <div class="table-responsive">
-                    <table class="table table-dark table-hover align-middle mb-0" style="--bs-table-bg: transparent;">
-                        <thead>
-                            <tr style="border-bottom: 1px solid var(--vl-border); color: #94a3b8; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;">
-                                <th class="ps-4">Collection Date</th>
-                                <th>Machine</th>
-                                <th>Recorded By</th>
-                                <th>Physical Cash Collected</th>
-                                <th>System Sales Target</th>
-                                <th>Variance</th>
-                                <th class="pe-4">Notes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($pagedCashCollections as $cc): 
-                                $var = (float)($cc['variance_amount'] ?? 0);
-                            ?>
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,.04); font-size: .88rem;">
-                                <td class="ps-4 fw-bold text-light">
-                                    <?= format_date($cc['collected_at'], 'M d, Y, g:i A') ?>
-                                </td>
-                                <td>
-                                    <div class="text-light fw-medium">
-                                        <?= e($cc['machine_name'] ?: 'VendoLink Machine 01') ?>
-                                    </div>
-                                </td>
-                                <td class="small text-secondary">
-                                    <?= e($cc['full_name'] ?? '—') ?>
-                                </td>
-                                <td class="fw-bold text-success font-monospace">
-                                    ₱<?= number_format((float)$cc['collected_amount'], 2) ?>
-                                </td>
-                                <td class="text-light font-monospace">
-                                    ₱<?= number_format((float)$cc['system_sales_amount'], 2) ?>
-                                </td>
-                                <td>
-                                    <?php if ($var == 0): ?>
-                                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2.5 py-1">
-                                            <i class="bi bi-check-circle me-1"></i>₱0.00 (Match)
-                                        </span>
-                                    <?php elseif ($var > 0): ?>
-                                        <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 rounded-pill px-2.5 py-1">
-                                            <i class="bi bi-arrow-up-right me-1"></i>+₱<?= number_format($var, 2) ?> (Surplus)
-                                        </span>
-                                    <?php else: ?>
-                                        <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-2.5 py-1">
-                                            <i class="bi bi-arrow-down-right me-1"></i>-₱<?= number_format(abs($var), 2) ?> (Shortage)
-                                        </span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="pe-4 small text-secondary">
-                                    <?= e($cc['notes'] ?: '—') ?>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Cash Collections Pagination Controls -->
-                <?php if ($ccTotalPages > 1): ?>
-                <div class="tx-pagination">
-                    <div class="text-muted small">
-                        Page <strong><?= $ccCurrentPage ?></strong> of <strong><?= $ccTotalPages ?></strong> (Total <?= number_format($totalCashCollections) ?> record<?= $totalCashCollections === 1 ? '' : 's' ?>)
-                    </div>
-                    <nav aria-label="Cash collections pagination">
-                        <ul class="pagination pagination-sm mb-0">
-                            <!-- Previous -->
-                            <li class="page-item <?= $ccCurrentPage <= 1 ? 'disabled' : '' ?>">
-                                <a class="page-link" href="<?= build_archive_url(['ccpage' => $ccCurrentPage - 1]) ?>" aria-label="Previous">
-                                    <span aria-hidden="true">&laquo;&nbsp;Prev</span>
-                                </a>
-                            </li>
-
-                            <?php for ($cp = 1; $cp <= $ccTotalPages; $cp++): ?>
-                            <li class="page-item <?= $cp === $ccCurrentPage ? 'active' : '' ?>">
-                                <a class="page-link" href="<?= build_archive_url(['ccpage' => $cp]) ?>"><?= $cp ?></a>
-                            </li>
-                            <?php endfor; ?>
-
-                            <!-- Next -->
-                            <li class="page-item <?= $ccCurrentPage >= $ccTotalPages ? 'disabled' : '' ?>">
-                                <a class="page-link" href="<?= build_archive_url(['ccpage' => $ccCurrentPage + 1]) ?>" aria-label="Next">
-                                    <span aria-hidden="true">Next&nbsp;&raquo;</span>
-                                </a>
-                            </li>
-                        </ul>
-                    </nav>
-                </div>
-                <?php endif; ?>
-
-                <?php endif; ?>
-            </div>
             <?php endif; ?>
 
         </main>
+
+        <!-- RECORD CASH COLLECTION MODAL -->
+        <div class="modal fade" id="recordCashModal" tabindex="-1" aria-labelledby="recordCashModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content text-light border-secondary border-opacity-25" style="background:#0f172a; border-color:#1e293b;">
+                    <div class="modal-header border-secondary border-opacity-25">
+                        <h5 class="modal-title fw-bold" id="recordCashModalLabel">
+                            <i class="bi bi-wallet2 text-success me-2"></i>Record Physical Cash Collection
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form method="POST" action="archive.php?tab=transactions&section=collections">
+                        <?= csrf_field() ?>
+                        <div class="modal-body p-4">
+                            <input type="hidden" name="action" value="record_cash_collection">
+
+                            <div class="alert alert-info bg-info bg-opacity-10 border-info border-opacity-25 text-info small mb-3">
+                                <i class="bi bi-info-circle-fill me-1.5"></i>
+                                Enter the total physical cash removed from the coin box. VendoLink will automatically compare it against registered system sales to calculate variance.
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label text-secondary small fw-bold">COLLECTED CASH AMOUNT (₱)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-secondary bg-opacity-20 text-light border-secondary border-opacity-25 fw-bold">₱</span>
+                                    <input type="number" step="0.50" min="0.50" name="collected_amount" class="form-control bg-dark text-light border-secondary border-opacity-25 fw-bold fs-5" placeholder="e.g. 1400.00" required autofocus autocomplete="off">
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label text-secondary small fw-bold">NOTES / OBSERVATIONS (OPTIONAL)</label>
+                                <textarea name="notes" class="form-control bg-dark text-light border-secondary border-opacity-25" rows="3" placeholder="e.g. Physical cash collection matching system sales. Coin box cleared."></textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer border-secondary border-opacity-25">
+                            <button type="button" class="btn btn-secondary px-3" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-success fw-bold px-4">
+                                <i class="bi bi-check-circle me-1"></i>Save Collection Record
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
 
         <!-- Page Footer -->
         <footer class="app-footer">

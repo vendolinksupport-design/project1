@@ -344,7 +344,7 @@ $currentPage = 'profile';
                             </div>
                             <span class="status-ring" title="<?= $statusInfo['label'] ?>"></span>
                         </div>
-                        <div>
+                        <div class="identity-info min-w-0 flex-grow-1">
                             <div class="identity-name profile-full-name"><?= e($profileUser['full_name']) ?></div>
                             <div class="identity-handle profile-username">@<?= e($profileUser['username']) ?></div>
                             <div class="identity-badges profile-badges">
@@ -408,12 +408,12 @@ $currentPage = 'profile';
                             </div>
                             <div class="field-cell profile-detail-row">
                                 <div class="field-label profile-detail-label"><i class="bi bi-patch-check me-2"></i>Email verified</div>
-                                <div class="field-value profile-detail-value">
+                                <div class="field-value profile-detail-value d-flex flex-wrap align-items-center gap-2">
                                     <?php if ($emailVerified): ?>
                                         <span class="badge verified"><i class="bi bi-patch-check-fill me-1"></i>Verified</span>
                                     <?php else: ?>
                                         <span class="badge warn"><i class="bi bi-exclamation-triangle-fill me-1"></i>Not Verified</span>
-                                        <form method="POST" action="profile.php" class="d-inline-block ms-2">
+                                        <form method="POST" action="profile.php" class="d-inline-block">
                                             <?= csrf_field() ?>
                                             <input type="hidden" name="action" value="resend_verification">
                                             <button type="submit" class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size:.72rem;">

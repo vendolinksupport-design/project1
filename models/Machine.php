@@ -46,7 +46,7 @@ class Machine
             if (!$machine) {
                 $stmt = $this->db->query(
                     'SELECT m.* FROM machines m 
-                     INNER JOIN product_keys pk ON (pk.hardware_serial = m.machine_code OR pk.hardware_serial = m.machine_key)
+                     INNER JOIN product_keys pk ON (pk.machine_id = m.id OR pk.hardware_serial = m.machine_code OR pk.hardware_serial = m.machine_key)
                      WHERE pk.owner_id = :owner_id 
                      ORDER BY m.id ASC LIMIT 1',
                     [':owner_id' => $ownerId]
@@ -56,7 +56,7 @@ class Machine
                 // If found via product_keys, associate direct owner_id
                 if ($machine) {
                     $this->db->query(
-                        'UPDATE machines SET owner_id = :owner_id WHERE id = :id',
+                        'UPDATE machines SET owner_id = :owner_id, registration_status = CASE WHEN registration_status IN ("registered","key_issued") THEN "claimed" ELSE registration_status END WHERE id = :id',
                         [':owner_id' => $ownerId, ':id' => (int)$machine['id']]
                     );
                 }
@@ -69,40 +69,49 @@ class Machine
                     [':owner_id' => $ownerId]
                 )->fetch();
 
-                if ($pkRow && !empty($pkRow['hardware_serial'])) {
-                    $serial = trim($pkRow['hardware_serial']);
-                    $stmt = $this->db->query(
-                        'SELECT * FROM machines WHERE machine_code = :c OR machine_key = :k LIMIT 1',
-                        [':c' => $serial, ':k' => $serial]
-                    );
-                    $machine = $stmt->fetch();
-                    if ($machine) {
-                        $this->db->query('UPDATE machines SET owner_id = :oid WHERE id = :id', [':oid' => $ownerId, ':id' => $machine['id']]);
-                    } else {
-                        $machineKey = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '_', $serial));
-                        $apiToken   = 'vl_dev_sec_' . bin2hex(random_bytes(13));
-                        $pdo = $this->db->getConnection();
-                        $ins = $pdo->prepare(
-                            "INSERT INTO machines (owner_id, machine_code, machine_key, name, api_token, status)
-                             VALUES (:owner_id, :code, :key, :name, :token, 'pending')"
-                        );
-                        $ins->execute([
-                            ':owner_id' => $ownerId,
-                            ':code'     => $serial,
-                            ':key'      => $machineKey,
-                            ':name'     => 'Vendo Machine ' . $serial,
-                            ':token'    => $apiToken,
-                        ]);
-                        $newMachId = (int)$pdo->lastInsertId();
+                if ($pkRow) {
+                    if (!empty($pkRow['machine_id'])) {
+                        $machine = $this->db->query('SELECT * FROM machines WHERE id = :id', [':id' => (int)$pkRow['machine_id']])->fetch();
+                        if ($machine) {
+                            $this->db->query('UPDATE machines SET owner_id = :oid, registration_status = CASE WHEN registration_status IN ("registered","key_issued") THEN "claimed" ELSE registration_status END WHERE id = :id', [':oid' => $ownerId, ':id' => (int)$machine['id']]);
+                        }
+                    }
 
-                        $svc = $pdo->prepare(
-                            "INSERT INTO services (machine_id, service_key, name, type, coin_value, service_seconds, is_enabled, enabled)
-                             VALUES (?, 'water', 'Water Service', 'water', 5.00, 120, 1, 1),
-                                    (?, 'soap',  'Soap Service',  'soap',  5.00, 120, 1, 1)"
+                    if (!$machine && !empty($pkRow['hardware_serial'])) {
+                        $serial = trim($pkRow['hardware_serial']);
+                        $stmt = $this->db->query(
+                            'SELECT * FROM machines WHERE machine_code = :c OR machine_key = :k LIMIT 1',
+                            [':c' => $serial, ':k' => $serial]
                         );
-                        $svc->execute([$newMachId, $newMachId]);
+                        $machine = $stmt->fetch();
+                        if ($machine) {
+                            $this->db->query('UPDATE machines SET owner_id = :oid, registration_status = CASE WHEN registration_status IN ("registered","key_issued") THEN "claimed" ELSE registration_status END WHERE id = :id', [':oid' => $ownerId, ':id' => $machine['id']]);
+                        } else {
+                            $machineKey = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '_', $serial));
+                            $apiToken   = 'vl_dev_sec_' . bin2hex(random_bytes(13));
+                            $pdo = $this->db->getConnection();
+                            $ins = $pdo->prepare(
+                                "INSERT INTO machines (owner_id, machine_code, machine_key, name, api_token, status, registration_status)
+                                 VALUES (:owner_id, :code, :key, :name, :token, 'pending', 'claimed')"
+                            );
+                            $ins->execute([
+                                ':owner_id' => $ownerId,
+                                ':code'     => $serial,
+                                ':key'      => $machineKey,
+                                ':name'     => 'Vendo Machine ' . $serial,
+                                ':token'    => $apiToken,
+                            ]);
+                            $newMachId = (int)$pdo->lastInsertId();
 
-                        $machine = $this->db->query('SELECT * FROM machines WHERE id = :id', [':id' => $newMachId])->fetch();
+                            $svc = $pdo->prepare(
+                                "INSERT INTO services (machine_id, service_key, name, type, coin_value, service_seconds, is_enabled, enabled)
+                                 VALUES (?, 'water', 'Water Service', 'water', 5.00, 120, 1, 1),
+                                        (?, 'soap',  'Soap Service',  'soap',  5.00, 60, 1, 1)"
+                            );
+                            $svc->execute([$newMachId, $newMachId]);
+
+                            $machine = $this->db->query('SELECT * FROM machines WHERE id = :id', [':id' => $newMachId])->fetch();
+                        }
                     }
                 }
             }
@@ -144,7 +153,7 @@ class Machine
 
         $rows = $this->db->query(
             'SELECT DISTINCT m.id FROM machines m
-             LEFT JOIN product_keys pk ON (pk.hardware_serial = m.machine_code OR pk.hardware_serial = m.machine_key)
+             LEFT JOIN product_keys pk ON (pk.machine_id = m.id OR pk.hardware_serial = m.machine_code OR pk.hardware_serial = m.machine_key)
              WHERE m.owner_id = :owner_id OR pk.owner_id = :owner_id2',
             [':owner_id' => $ownerId, ':owner_id2' => $ownerId]
         )->fetchAll();
@@ -166,6 +175,54 @@ class Machine
     }
 
     /**
+     * Find machine by database ID.
+     */
+    public function findById(int $id): ?array
+    {
+        $machine = $this->db->query(
+            'SELECT * FROM machines WHERE id = :id LIMIT 1',
+            [':id' => $id]
+        )->fetch();
+
+        return $machine ?: null;
+    }
+
+    public function getById(int $id): ?array
+    {
+        return $this->findById($id);
+    }
+
+    /**
+     * Get services for a specific machine ID.
+     */
+    public function getServices(int $machineId): array
+    {
+        return $this->db->query(
+            'SELECT * FROM services WHERE machine_id = :mid ORDER BY FIELD(service_key, "water", "soap"), id',
+            [':mid' => $machineId]
+        )->fetchAll() ?: [];
+    }
+
+    /**
+     * Find machine by physical device MAC address.
+     */
+    public function findByMac(string $mac): ?array
+    {
+        $cleanedMac = strtoupper(preg_replace('/[^0-9A-Fa-f]/', '', $mac));
+        if (strlen($cleanedMac) !== 12) {
+            return null;
+        }
+        $formattedMac = implode(':', str_split($cleanedMac, 2));
+
+        $machine = $this->db->query(
+            'SELECT * FROM machines WHERE device_mac = :mac LIMIT 1',
+            [':mac' => $formattedMac]
+        )->fetch();
+
+        return $machine ?: null;
+    }
+
+    /**
      * Verify device authentication token.
      */
     public function verifyApiToken(string $machineKey, string $token): bool
@@ -176,6 +233,47 @@ class Machine
         }
 
         return hash_equals((string)$machine['api_token'], (string)$token);
+    }
+
+    /**
+     * Compute the cryptographically derived per-device bootstrap token for a physical MAC.
+     * Bound exclusively to this physical hardware identity.
+     */
+    public static function computeBootstrapToken(string $mac): string
+    {
+        $cleanedMac = strtoupper(preg_replace('/[^0-9A-Fa-f]/', '', $mac));
+        if (strlen($cleanedMac) !== 12) {
+            return '';
+        }
+        $formattedMac = implode(':', str_split($cleanedMac, 2));
+        $masterKey = defined('DEVICE_BOOTSTRAP_MASTER_KEY') ? DEVICE_BOOTSTRAP_MASTER_KEY : '';
+        if (empty($masterKey)) {
+            return '';
+        }
+        return hash_hmac('sha256', $formattedMac, $masterKey);
+    }
+
+    /**
+     * Verify whether a given bootstrap token is valid for the specified MAC address.
+     */
+    public static function verifyBootstrapToken(string $mac, string $token): bool
+    {
+        if (empty($token)) {
+            return false;
+        }
+        $expected = self::computeBootstrapToken($mac);
+        if (!empty($expected) && hash_equals($expected, $token)) {
+            return true;
+        }
+
+        // Backward-compatible fallback during staging migration if configured
+        if (defined('DEVICE_ENROLLMENT_SECRET') && !empty(DEVICE_ENROLLMENT_SECRET)) {
+            if (hash_equals(DEVICE_ENROLLMENT_SECRET, $token)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -221,6 +319,27 @@ class Machine
                     ]);
                 }
             }
+
+            // Check if firmware version upgraded
+            $oldFw = trim($machine['firmware_version'] ?? '');
+            $newFw = trim($firmwareVersion ?? '');
+            if (!empty($oldFw) && !empty($newFw) && strtolower(ltrim($oldFw, 'v')) !== strtolower(ltrim($newFw, 'v'))) {
+                log_activity('FIRMWARE_UPGRADED', "Machine {$machine['machine_code']} ({$machine['name']}) successfully upgraded firmware from {$oldFw} to {$newFw}.", $ownerId > 0 ? $ownerId : null);
+
+                require_once ROOT_PATH . '/models/Notification.php';
+                (new Notification())->create([
+                    'user_id'     => $ownerId > 0 ? $ownerId : 1,
+                    'machine_id'  => (int)$machine['id'],
+                    'category'    => 'system',
+                    'type'        => 'success',
+                    'title'       => 'Firmware Updated!',
+                    'message'     => ($machine['name'] ?? 'Machine') . ' (' . ($machine['machine_code'] ?? 'Unit') . ") successfully updated firmware to {$newFw}.",
+                    'icon'        => 'bi-cloud-check',
+                    'badge'       => 'OTA Update',
+                    'is_critical' => 0,
+                    'action_link' => BASE_URL . '/admin/ota/index.php',
+                ]);
+            }
         }
 
         $result = $this->db->query(
@@ -245,7 +364,8 @@ class Machine
     }
 
     /**
-     * Resolve the owner ID for a given machine using direct owner_id, product_keys, or fallback.
+     * Resolve the owner ID for a given machine using direct owner_id or product_keys.
+     * Returns 0 for unowned machines (does NOT auto-assign unowned machines).
      */
     public function resolveOwnerId(array $machine): int
     {
@@ -254,33 +374,29 @@ class Machine
             return $ownerId;
         }
 
-        // 1. Lookup via product_keys table linkage
+        // 1. Lookup via product_keys table linkage (direct machine_id or legacy serial)
         $code = $machine['machine_code'] ?? '';
         $key  = $machine['machine_key'] ?? '';
-        if (!empty($code) || !empty($key)) {
+        $mId  = (int)($machine['id'] ?? 0);
+
+        if ($mId > 0 || !empty($code) || !empty($key)) {
             $pk = $this->db->query(
                 "SELECT owner_id FROM product_keys 
-                 WHERE (hardware_serial = :c OR hardware_serial = :k) AND owner_id IS NOT NULL 
+                 WHERE (machine_id = :mid OR (hardware_serial != '' AND (hardware_serial = :c OR hardware_serial = :k)))
+                   AND owner_id IS NOT NULL 
                  ORDER BY id ASC LIMIT 1",
-                [':c' => $code, ':k' => $key]
+                [':mid' => $mId, ':c' => $code, ':k' => $key]
             )->fetch();
 
             if ($pk && !empty($pk['owner_id'])) {
                 $ownerId = (int)$pk['owner_id'];
-                $this->db->query("UPDATE machines SET owner_id = :oid WHERE id = :id", [':oid' => $ownerId, ':id' => (int)$machine['id']]);
+                $this->db->query("UPDATE machines SET owner_id = :oid WHERE id = :id", [':oid' => $ownerId, ':id' => $mId]);
                 return $ownerId;
             }
         }
 
-        // 2. Fallback to first active owner user in database
-        $firstOwner = $this->db->query("SELECT id FROM users WHERE role = 'owner' ORDER BY id ASC LIMIT 1")->fetch();
-        if ($firstOwner && !empty($firstOwner['id'])) {
-            $ownerId = (int)$firstOwner['id'];
-            $this->db->query("UPDATE machines SET owner_id = :oid WHERE id = :id", [':oid' => $ownerId, ':id' => (int)$machine['id']]);
-            return $ownerId;
-        }
-
-        return 1; // Fallback to administrator ID 1
+        // Unowned machine: return 0 (never silently auto-assign to arbitrary owner or admin)
+        return 0;
     }
 
     /**
@@ -336,25 +452,28 @@ class Machine
             ];
         }
 
-        // Check Low Tank Floater Alerts
-        if (!empty($machine['water_tank_low'])) {
-            $alerts[] = [
-                'type'        => 'warning',
-                'title'       => 'Low Water Level',
-                'message'     => 'Detected by ESP32 tank sensor',
-                'icon'        => 'bi-droplet-half',
-                'is_critical' => true
-            ];
-        }
+        // Check Low Tank Floater Alerts (ONLY for carwash machines with liquid tanks)
+        $machType = $machine['machine_type'] ?? 'carwash';
+        if ($machType === 'carwash') {
+            if (!empty($machine['water_tank_low'])) {
+                $alerts[] = [
+                    'type'        => 'warning',
+                    'title'       => 'Low Water Level',
+                    'message'     => 'Detected by ESP32 tank sensor',
+                    'icon'        => 'bi-droplet-half',
+                    'is_critical' => true
+                ];
+            }
 
-        if (!empty($machine['soap_tank_low'])) {
-            $alerts[] = [
-                'type'        => 'warning',
-                'title'       => 'Low Soap Level',
-                'message'     => 'Detected by ESP32 tank sensor',
-                'icon'        => 'bi-exclamation-circle-fill',
-                'is_critical' => true
-            ];
+            if (!empty($machine['soap_tank_low'])) {
+                $alerts[] = [
+                    'type'        => 'warning',
+                    'title'       => 'Low Soap Level',
+                    'message'     => 'Detected by ESP32 tank sensor',
+                    'icon'        => 'bi-exclamation-circle-fill',
+                    'is_critical' => true
+                ];
+            }
         }
 
         // Check Maintenance Alerts
@@ -382,6 +501,18 @@ class Machine
         $machine = $this->findByKey($machineKey);
         if (!$machine) {
             return ['success' => false, 'error' => "Machine identity '{$machineKey}' not found."];
+        }
+
+        // For non-carwash machines (air/blower, tire air), physical floaters are not installed
+        $machType = $machine['machine_type'] ?? 'carwash';
+        if ($machType !== 'carwash') {
+            return [
+                'success'     => true,
+                'message'     => "Tank sensor ignored: machine type is '{$machType}' (tank floaters disabled)",
+                'machine_key' => $machineKey,
+                'tank_key'    => $tankKey,
+                'status'      => 'ignored',
+            ];
         }
 
         $tankKey = strtolower(trim($tankKey));
@@ -598,8 +729,8 @@ class Machine
     {
         if ($ownerId !== null && $ownerId > 0) {
             $machines = $this->db->query(
-                'SELECT m.* FROM machines m
-                 LEFT JOIN product_keys pk ON (pk.hardware_serial = m.machine_code OR pk.hardware_serial = m.machine_key)
+                'SELECT DISTINCT m.* FROM machines m
+                 LEFT JOIN product_keys pk ON (pk.machine_id = m.id OR pk.hardware_serial = m.machine_code OR pk.hardware_serial = m.machine_key)
                  WHERE m.owner_id = :owner_id OR pk.owner_id = :owner_id2
                  ORDER BY m.id ASC',
                 [':owner_id' => $ownerId, ':owner_id2' => $ownerId]
@@ -623,6 +754,41 @@ class Machine
     }
 
     /**
+     * Get a specific machine with its services, enforcing owner isolation.
+     *
+     * @param int      $machineId Machine ID
+     * @param int|null $ownerId   Optional owner ID for multi-tenant isolation
+     * @return array|null Machine record with 'services' and 'calculated_status', or null if not found/unauthorized
+     */
+    public function getByIdWithServices(int $machineId, ?int $ownerId = null): ?array
+    {
+        if ($machineId <= 0) {
+            return null;
+        }
+
+        if ($ownerId !== null && $ownerId > 0) {
+            $machine = $this->db->query(
+                'SELECT DISTINCT m.* FROM machines m
+                 LEFT JOIN product_keys pk ON (pk.machine_id = m.id OR pk.hardware_serial = m.machine_code OR pk.hardware_serial = m.machine_key)
+                 WHERE m.id = :id AND (m.owner_id = :owner_id OR pk.owner_id = :owner_id2)
+                 LIMIT 1',
+                [':id' => $machineId, ':owner_id' => $ownerId, ':owner_id2' => $ownerId]
+            )->fetch();
+        } else {
+            $machine = $this->findById($machineId);
+        }
+
+        if (!$machine) {
+            return null;
+        }
+
+        $machine['calculated_status'] = $this->evaluateOnlineStatus($machine);
+        $machine['services'] = $this->getServices((int)$machine['id']);
+
+        return $machine;
+    }
+
+    /**
      * Update 20x4 LCD screen custom lines.
      */
     public function updateLcdLines(int $machineId, string $line1, string $line2, string $line3, string $line4): bool
@@ -637,5 +803,162 @@ class Machine
             ':l4' => mb_substr($line4, 0, 20),
             ':id' => $machineId
         ]);
+    }
+
+    /**
+     * Update machine type classification.
+     */
+    public function updateMachineType(int $machineId, string $machineType): bool
+    {
+        $allowed = ['carwash', 'air_blower', 'tire_air', 'custom'];
+        if (!in_array($machineType, $allowed, true)) {
+            $machineType = 'carwash';
+        }
+        $stmt = $this->db->getConnection()->prepare(
+            "UPDATE machines SET machine_type = :type, updated_at = NOW() WHERE id = :id"
+        );
+        return $stmt->execute([':type' => $machineType, ':id' => $machineId]);
+    }
+
+    /**
+     * Apply a machine configuration template (e.g. 'carwash', 'air_blower', 'tire_air', 'custom').
+     * Adapts services (Relay 1, Relay 2), icons, names, and LCD display presets.
+     */
+    public function applyTemplate(int $machineId, string $templateType, ?int $userId = null): bool
+    {
+        $machine = $this->findById($machineId);
+        if (!$machine) {
+            return false;
+        }
+
+        $allowedTemplates = ['carwash', 'air_blower', 'tire_air', 'custom'];
+        if (!in_array($templateType, $allowedTemplates, true)) {
+            $templateType = 'carwash';
+        }
+
+        $pdo = $this->db->getConnection();
+        $pdo->beginTransaction();
+
+        try {
+            // 1. Update machine_type
+            $stmt = $pdo->prepare("UPDATE machines SET machine_type = :type, updated_at = NOW() WHERE id = :id");
+            $stmt->execute([':type' => $templateType, ':id' => $machineId]);
+
+            // 2. Fetch services for this machine
+            $services = $this->getServices($machineId);
+
+            // Separate relay 1 (water key) and relay 2 (soap key)
+            $relay1 = null;
+            $relay2 = null;
+            foreach ($services as $s) {
+                if ($s['service_key'] === 'water' || $s['service_key'] === 'air') {
+                    $relay1 = $s;
+                } elseif ($s['service_key'] === 'soap' || $s['service_key'] === 'blower') {
+                    $relay2 = $s;
+                }
+            }
+            if (!$relay1 && !empty($services[0])) $relay1 = $services[0];
+            if (!$relay2 && !empty($services[1])) $relay2 = $services[1];
+
+            if ($templateType === 'air_blower') {
+                if ($relay1) {
+                    $pdo->prepare("UPDATE services SET name = 'Tire Air', type = 'air', icon = 'bi-speedometer2', is_enabled = 1, service_seconds = 120 WHERE id = :id")
+                        ->execute([':id' => $relay1['id']]);
+                }
+                if ($relay2) {
+                    $pdo->prepare("UPDATE services SET name = 'Car Blower', type = 'blower', icon = 'bi-wind', is_enabled = 1, service_seconds = 120 WHERE id = :id")
+                        ->execute([':id' => $relay2['id']]);
+                }
+                $this->updateLcdLines(
+                    $machineId,
+                    '== AIR & BLOWER ==  ',
+                    'AIR & BLOWER READY! ',
+                    'INSERT COIN FIRST!  ',
+                    'AIR:P5  | BLOWER:P5 '
+                );
+            } elseif ($templateType === 'tire_air') {
+                if ($relay1) {
+                    $pdo->prepare("UPDATE services SET name = 'Tire Air', type = 'air', icon = 'bi-speedometer2', is_enabled = 1, service_seconds = 120 WHERE id = :id")
+                        ->execute([':id' => $relay1['id']]);
+                }
+                if ($relay2) {
+                    $pdo->prepare("UPDATE services SET name = 'Auxiliary Service', type = 'aux', icon = 'bi-slash-circle', is_enabled = 0, service_seconds = 60 WHERE id = :id")
+                        ->execute([':id' => $relay2['id']]);
+                }
+                $this->updateLcdLines(
+                    $machineId,
+                    '== TIRE INFLATOR == ',
+                    'TIRE AIR READY!     ',
+                    'INSERT COIN FIRST!  ',
+                    'TIRE AIR: P5 / 2MIN '
+                );
+            } elseif ($templateType === 'carwash') {
+                if ($relay1) {
+                    $pdo->prepare("UPDATE services SET name = 'Water Service', type = 'water', icon = 'bi-droplet-fill', is_enabled = 1, service_seconds = 120 WHERE id = :id")
+                        ->execute([':id' => $relay1['id']]);
+                }
+                if ($relay2) {
+                    $pdo->prepare("UPDATE services SET name = 'Soap Service', type = 'soap', icon = 'bubble-logo-svg', is_enabled = 1, service_seconds = 60 WHERE id = :id")
+                        ->execute([':id' => $relay2['id']]);
+                }
+                $this->updateLcdLines(
+                    $machineId,
+                    '== KENJI CARWASH == ',
+                    'WELCOME CUSTOMER!   ',
+                    'INSERT COIN FIRST!  ',
+                    'WATER:P5 | SOAP:P5  '
+                );
+            }
+
+            $pdo->commit();
+            return true;
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log("Failed to apply machine template: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Resolve badge styling and labels for a machine type.
+     */
+    public static function getMachineTypeBadge(string $machineType): array
+    {
+        return match ($machineType) {
+            'air_blower' => [
+                'label'     => 'Tire Air & Blower',
+                'short'     => 'AIR & BLOWER',
+                'icon'      => 'bi-wind',
+                'color'     => 'info',
+                'has_tanks' => false,
+                'desc'      => 'Tire Air Compressor + Car Blower (No tank sensors)',
+            ],
+            'tire_air' => [
+                'label'     => 'Tire Inflator',
+                'short'     => 'TIRE AIR',
+                'icon'      => 'bi-speedometer2',
+                'color'     => 'cyan',
+                'has_tanks' => false,
+                'desc'      => 'Single Service Tire Inflator (No tank sensors)',
+            ],
+            'custom' => [
+                'label'     => 'Custom Services',
+                'short'     => 'CUSTOM',
+                'icon'      => 'bi-sliders',
+                'color'     => 'secondary',
+                'has_tanks' => false,
+                'desc'      => 'Custom multi-service configuration',
+            ],
+            default => [
+                'label'     => 'Carwash Vendo',
+                'short'     => 'CARWASH',
+                'icon'      => 'bi-droplet-half',
+                'color'     => 'primary',
+                'has_tanks' => true,
+                'desc'      => 'Water & Soap wash with dual float reservoir sensors',
+            ],
+        };
     }
 }

@@ -43,8 +43,8 @@ $cardsHtml = file_get_contents(ROOT_PATH . '/views/dashboard/cards.php');
 assert_true(strpos($cardsHtml, 'dashboard-recent-tx-card') !== false, "Transaction Records section present on dashboard");
 assert_true(strpos($cardsHtml, 'Transaction Records') !== false, "Section heading contains 'Transaction Records'");
 
-// Verify View All button
-assert_true(strpos($cardsHtml, 'View All') !== false, "View All button text present in Transaction Records header");
+// Verify View More button
+assert_true(strpos($cardsHtml, 'View All') !== false || strpos($cardsHtml, 'View More') !== false, "View More button text present in Transaction Records header");
 assert_true(strpos($cardsHtml, 'href="<?= BASE_URL ?>/dashboard/archive.php"') !== false, "View All button links to dashboard/archive.php (History page)");
 assert_true(strpos($cardsHtml, 'btn-outline-primary') !== false, "View All button styled with VendoLink cyan outline theme");
 
