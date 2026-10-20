@@ -504,13 +504,23 @@ $currentDir  = 'customers';
                                                                             <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
                                                                                 <div class="text-truncate">
                                                                                     <span class="fw-semibold text-light fs-6 d-block text-truncate" title="<?= e($m['name'] ?: 'Machine #' . $m['id']) ?>">
-                                                                                        <i class="bi bi-hdd-rack text-primary me-1.5"></i><?= e($m['name'] ?: 'Machine #' . $m['id']) ?>
+                                                                                        <?= e($m['name'] ?: 'Machine #' . $m['id']) ?>
                                                                                     </span>
                                                                                     <span class="text-muted extra-small">ID #<?= (int)$m['id'] ?> &bull; <?= e($m['location'] ? ucfirst($m['location']) : 'Standard') ?></span>
                                                                                 </div>
-                                                                                <span class="badge <?= $statusClass ?> rounded-pill px-2.5 py-1 small flex-shrink-0">
-                                                                                    <i class="bi <?= $statusIcon ?> me-1"></i><?= $statusText ?>
-                                                                                </span>
+                                                                                <?php if ($mStatus === 'online'): ?>
+                                                                                    <span class="text-success small fw-medium d-inline-flex align-items-center flex-shrink-0">
+                                                                                        <span class="me-2" style="width: 7px; height: 7px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Online
+                                                                                    </span>
+                                                                                <?php elseif ($mStatus === 'stale'): ?>
+                                                                                    <span class="text-warning small fw-medium d-inline-flex align-items-center flex-shrink-0">
+                                                                                        <span class="me-2" style="width: 7px; height: 7px; background: #f59e0b; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Stale
+                                                                                    </span>
+                                                                                <?php else: ?>
+                                                                                    <span class="text-danger small fw-medium d-inline-flex align-items-center flex-shrink-0">
+                                                                                        <span class="me-2" style="width: 7px; height: 7px; background: #ef4444; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Offline
+                                                                                    </span>
+                                                                                <?php endif; ?>
                                                                             </div>
 
                                                                             <div class="d-flex flex-wrap gap-2 mb-2">

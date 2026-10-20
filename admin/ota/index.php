@@ -454,7 +454,7 @@ $currentDir  = 'ota';
                         <div class="col-12 col-lg-5">
                             <div class="admin-card h-100">
                                 <h5 class="fw-bold text-light mb-3">
-                                    <i class="bi bi-send-check text-primary me-2"></i>Send Update to Machines
+                                    <i class="bi bi-bullseye text-primary me-2"></i>Targeted Machine Update &amp; Hotfix
                                 </h5>
 
                                 <?php if (empty($otaReleases)): ?>
@@ -463,7 +463,7 @@ $currentDir  = 'ota';
                                         No firmware builds uploaded yet. Please click the <strong>Upload New Firmware</strong> tab first to upload your <code>.bin</code> file.
                                     </div>
                                 <?php else: ?>
-                                    <form method="POST" onsubmit="const btn=document.getElementById('deploySubmitBtn'); if(btn){btn.disabled=true; btn.innerHTML='<span class=\'spinner-border spinner-border-sm me-2\'></span>Dispatching Update...';}">
+                                    <form method="POST" onsubmit="return confirmDeployment(this);">
                                         <?= csrf_field() ?>
                                         <input type="hidden" name="action" value="deploy_ota">
 
@@ -483,34 +483,51 @@ $currentDir  = 'ota';
                                         <div class="mb-3">
                                             <label class="form-label text-secondary small fw-bold">2. CHOOSE WHO GETS THE UPDATE</label>
                                             
-                                            <!-- Option A: All Machines -->
+                                            <!-- Option A: By Specific Machine (Default / Hotfix Mode) -->
                                             <div class="form-check mb-2">
-                                                <input class="form-check-input" type="radio" name="target_type" id="targetAll" value="all" <?= ($preselectedMachineId === 0 ? 'checked' : '') ?> onchange="toggleTargetOptions()">
-                                                <label class="form-check-label text-light fw-semibold" for="targetAll">
-                                                    All Machines Nationwide <span class="text-secondary small fw-normal">(General Update to every connected machine)</span>
+                                                <input class="form-check-input" type="radio" name="target_type" id="targetMachine" value="machine" <?= ($preselectedMachineId > 0 || empty($_GET['scope']) || $_GET['scope'] !== 'all') ? 'checked' : '' ?> onchange="toggleTargetOptions()">
+                                                <label class="form-check-label text-light fw-semibold" for="targetMachine">
+                                                    By Specific Machine <span class="badge bg-info bg-opacity-10 text-info font-monospace ms-1">Recommended / Hotfix</span>
+                                                    <div class="text-secondary small fw-normal">Target Machine 1 or Machine 2 only (safe, isolated update)</div>
                                                 </label>
                                             </div>
 
                                             <!-- Option B: By Customer -->
                                             <div class="form-check mb-2">
-                                                <input class="form-check-input" type="radio" name="target_type" id="targetCustomer" value="customer" onchange="toggleTargetOptions()">
+                                                <input class="form-check-input" type="radio" name="target_type" id="targetCustomer" value="customer" <?= (isset($_GET['scope']) && $_GET['scope'] === 'customer') ? 'checked' : '' ?> onchange="toggleTargetOptions()">
                                                 <label class="form-check-label text-light fw-semibold" for="targetCustomer">
-                                                    By Customer <span class="text-secondary small fw-normal">(Updates all machines owned by one person)</span>
+                                                    By Customer
+                                                    <div class="text-secondary small fw-normal">Updates all machines owned by one person</div>
                                                 </label>
                                             </div>
 
-                                            <!-- Option C: By Specific Machine -->
+                                            <!-- Option C: All Machines Nationwide -->
                                             <div class="form-check mb-3">
-                                                <input class="form-check-input" type="radio" name="target_type" id="targetMachine" value="machine" <?= ($preselectedMachineId > 0 ? 'checked' : '') ?> onchange="toggleTargetOptions()">
-                                                <label class="form-check-label text-light fw-semibold" for="targetMachine">
-                                                    By Specific Machine <span class="text-secondary small fw-normal">(Target Machine 1 or Machine 2 only)</span>
+                                                <input class="form-check-input" type="radio" name="target_type" id="targetAll" value="all" <?= (isset($_GET['scope']) && $_GET['scope'] === 'all') ? 'checked' : '' ?> onchange="toggleTargetOptions()">
+                                                <label class="form-check-label text-light fw-semibold" for="targetAll">
+                                                    All Machines Nationwide <span class="badge bg-warning bg-opacity-10 text-warning font-monospace ms-1">Full Rollout</span>
+                                                    <div class="text-secondary small fw-normal">General update broadcast to every connected machine</div>
                                                 </label>
+                                            </div>
+
+                                            <!-- Dynamic Dropdown: Machine Selector (Visible by default) -->
+                                            <div id="machineSelectBox" class="mb-3 target-box-selected" style="<?= ($preselectedMachineId > 0 || empty($_GET['scope']) || $_GET['scope'] !== 'all') ? 'display: block;' : 'display: none;' ?>">
+                                                <label class="form-label text-light small fw-bold">SELECT TARGET MACHINE:</label>
+                                                <select name="machine_id" id="machineSelectInput" class="form-select bg-dark text-light border-secondary border-opacity-50">
+                                                    <option value="">-- Choose Machine 1 or Machine 2 --</option>
+                                                    <?php foreach ($allMachines as $m): ?>
+                                                        <option value="<?= (int)$m['id'] ?>" <?= ($preselectedMachineId === (int)$m['id'] ? 'selected' : '') ?>>
+                                                            <?= e($m['name'] ?: $m['machine_code']) ?> (Code: <?= e($m['machine_code']) ?> &bull; Current FW: v<?= e($m['firmware_version'] ?? '3.0.0') ?>)
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <div class="form-text text-secondary small">Only this specific machine will download and install the update.</div>
                                             </div>
 
                                             <!-- Dynamic Dropdown: Customer Selector -->
                                             <div id="customerSelectBox" class="mb-3 target-box-selected" style="display: none;">
                                                 <label class="form-label text-light small fw-bold">SELECT CUSTOMER:</label>
-                                                <select name="customer_id" class="form-select bg-dark text-light border-secondary border-opacity-50">
+                                                <select name="customer_id" id="customerSelectInput" class="form-select bg-dark text-light border-secondary border-opacity-50">
                                                     <option value="">-- Choose a Customer --</option>
                                                     <?php foreach ($allCustomers as $c): ?>
                                                         <option value="<?= (int)$c['id'] ?>">
@@ -521,24 +538,21 @@ $currentDir  = 'ota';
                                                 <div class="form-text text-secondary small">All machines owned by this customer will receive the update.</div>
                                             </div>
 
-                                            <!-- Dynamic Dropdown: Machine Selector -->
-                                            <div id="machineSelectBox" class="mb-3 target-box-selected" style="<?= ($preselectedMachineId > 0 ? 'display: block;' : 'display: none;') ?>">
-                                                <label class="form-label text-light small fw-bold">SELECT TARGET MACHINE:</label>
-                                                <select name="machine_id" class="form-select bg-dark text-light border-secondary border-opacity-50">
-                                                    <option value="">-- Choose Machine 1 or Machine 2 --</option>
-                                                    <?php foreach ($allMachines as $m): ?>
-                                                        <option value="<?= (int)$m['id'] ?>" <?= ($preselectedMachineId === (int)$m['id'] ? 'selected' : '') ?>>
-                                                            <?= e($m['name'] ?: $m['machine_code']) ?> (Code: <?= e($m['machine_code']) ?> &bull; Current FW: v<?= e($m['firmware_version'] ?? '3.0.0') ?>)
-                                                        </option>
-                                                    <?php endforeach; ?>
-                                                </select>
-                                                <div class="form-text text-secondary small">Only this specific machine will download and install the update.</div>
+                                            <!-- Dynamic Caution Notice for Nationwide -->
+                                            <div id="nationwideAlertBox" class="alert alert-warning border-0 bg-warning bg-opacity-10 text-warning small py-2.5 px-3 mb-3" style="display: none;">
+                                                <div class="d-flex align-items-start gap-2">
+                                                    <i class="bi bi-exclamation-triangle-fill text-warning mt-0.5 flex-shrink-0"></i>
+                                                    <div>
+                                                        <strong>Safety Notice: Nationwide Deployment</strong>
+                                                        <div class="mt-0.5 text-warning-emphasis">This broadcasts the firmware update to all active machines. They will begin downloading and flashing upon their next heartbeat check-in.</div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
 
                                         <!-- Step 3: Trigger Button -->
                                         <button type="submit" id="deploySubmitBtn" class="btn btn-primary w-100 fw-bold py-2.5">
-                                            <i class="bi bi-radio me-2"></i>Send Wireless Update Now
+                                            <i class="bi bi-send-check me-2"></i>Dispatch Targeted Update
                                         </button>
                                     </form>
                                 <?php endif; ?>
@@ -704,7 +718,7 @@ $currentDir  = 'ota';
                                         <table class="table table-dark admin-table mb-0">
                                             <thead>
                                                 <tr>
-                                                    <th>Version</th>
+                                                    <th>Version &bull; Filename</th>
                                                     <th>Target Scope</th>
                                                     <th>Dispatched Date</th>
                                                     <th>Finished / Stopped Date</th>
@@ -715,9 +729,16 @@ $currentDir  = 'ota';
                                                 <?php foreach ($otaHistory as $dep): ?>
                                                 <tr>
                                                     <td>
-                                                        <span class="badge bg-primary bg-opacity-25 text-primary fw-bold font-monospace">
-                                                            <?= e($dep['version']) ?>
-                                                        </span>
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <span class="fw-bold text-info font-monospace small"><?= e($dep['version']) ?></span>
+                                                            <span class="text-light fw-medium font-monospace small"><?= e($dep['filename'] ?? '') ?></span>
+                                                        </div>
+                                                        <div class="small text-secondary mt-0.5 font-monospace">
+                                                            <?= number_format(($dep['filesize'] ?? 0) / 1024, 1) ?> KB &bull; <?= date('M d, Y', strtotime($dep['created_at'])) ?>
+                                                            <?php if (!empty($dep['changelog'])): ?>
+                                                                <span class="text-muted ms-1">&bull; <?= e(mb_strimwidth($dep['changelog'], 0, 40, '...')) ?></span>
+                                                            <?php endif; ?>
+                                                        </div>
                                                     </td>
                                                     <td>
                                                         <?php if ($dep['target_type'] === 'all'): ?>
@@ -914,11 +935,49 @@ $currentDir  = 'ota';
 <script src="<?= ASSETS_URL ?>/js/app.js?v=<?= e((string) filemtime(ROOT_PATH . '/assets/css/app.css')) ?>"></script>
 <script>
 function toggleTargetOptions() {
-    const isCustomer = document.getElementById('targetCustomer').checked;
-    const isMachine  = document.getElementById('targetMachine').checked;
+    const isCustomer   = document.getElementById('targetCustomer')?.checked;
+    const isMachine    = document.getElementById('targetMachine')?.checked;
+    const isNationwide = document.getElementById('targetAll')?.checked;
 
-    document.getElementById('customerSelectBox').style.display = isCustomer ? 'block' : 'none';
-    document.getElementById('machineSelectBox').style.display  = isMachine  ? 'block' : 'none';
+    const custBox = document.getElementById('customerSelectBox');
+    const machBox = document.getElementById('machineSelectBox');
+    const warnBox = document.getElementById('nationwideAlertBox');
+
+    if (custBox) custBox.style.display = isCustomer ? 'block' : 'none';
+    if (machBox) machBox.style.display = isMachine  ? 'block' : 'none';
+    if (warnBox) warnBox.style.display = isNationwide ? 'block' : 'none';
+}
+
+function confirmDeployment(form) {
+    const isNationwide = document.getElementById('targetAll')?.checked;
+    const isCustomer   = document.getElementById('targetCustomer')?.checked;
+    const isMachine    = document.getElementById('targetMachine')?.checked;
+
+    if (isNationwide) {
+        const ok = confirm('Safety Confirmation:\nAre you sure you want to broadcast this firmware update to ALL machines nationwide?\n\nThis will signal every connected machine to download and install this build.');
+        if (!ok) return false;
+    } else if (isMachine) {
+        const sel = document.getElementById('machineSelectInput') || form.querySelector('select[name="machine_id"]');
+        if (!sel || !sel.value) {
+            alert('Please select a specific machine before dispatching the update.');
+            if (sel) sel.focus();
+            return false;
+        }
+    } else if (isCustomer) {
+        const sel = document.getElementById('customerSelectInput') || form.querySelector('select[name="customer_id"]');
+        if (!sel || !sel.value) {
+            alert('Please select a customer before dispatching the update.');
+            if (sel) sel.focus();
+            return false;
+        }
+    }
+
+    const btn = document.getElementById('deploySubmitBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Dispatching Update...';
+    }
+    return true;
 }
 
 // Live polling for Active Wireless Updates
