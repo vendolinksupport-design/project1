@@ -565,7 +565,7 @@ $currentDir  = 'ota';
                                 <div class="d-flex align-items-center justify-content-between mb-3">
                                     <div>
                                         <h5 class="fw-bold text-light mb-0">
-                                            <i class="bi bi-broadcast text-warning me-2"></i>Active Rollouts (Live Progress)
+                                            <i class="bi bi-broadcast text-warning me-2"></i>Live Update Progress
                                         </h5>
                                         <div class="text-secondary small mt-0.5">Real-time status of wireless updates in progress</div>
                                     </div>
@@ -573,21 +573,17 @@ $currentDir  = 'ota';
                                         <span class="text-success small fw-medium d-inline-flex align-items-center">
                                             <span class="me-2" style="width: 7px; height: 7px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Live Auto-Sync
                                         </span>
-                                    <?php else: ?>
-                                        <span class="text-secondary small fw-medium d-inline-flex align-items-center">
-                                            <span class="me-2" style="width: 7px; height: 7px; background: #64748b; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Idle
-                                        </span>
                                     <?php endif; ?>
                                 </div>
 
                                 <?php if (empty($activeDeployments)): ?>
                                     <div class="text-center py-5 text-secondary d-flex flex-column align-items-center justify-content-center flex-grow-1">
-                                        <div class="p-3 rounded-circle bg-dark border border-secondary border-opacity-25 mb-3 text-secondary">
+                                        <div class="rounded-circle bg-dark border border-secondary border-opacity-25 mb-3 text-secondary d-inline-flex align-items-center justify-content-center" style="width: 64px; height: 64px; flex-shrink: 0;">
                                             <i class="bi bi-check2-circle fs-2 text-success"></i>
                                         </div>
                                         <div class="fw-semibold text-light mb-1">No Wireless Updates In Progress</div>
                                         <div class="small text-muted" style="max-width: 380px;">
-                                            All connected machines are up to date. When you send an update using the form on the left, live machine progress will stream here automatically.
+                                            All connected machines are up to date. When you dispatch an update using the form on the left, live machine progress will stream here automatically.
                                         </div>
                                     </div>
                                 <?php else: ?>
@@ -690,7 +686,7 @@ $currentDir  = 'ota';
                                         <h5 class="fw-bold text-light mb-0">
                                             <i class="bi bi-clock-history text-info me-2"></i>Deployment History
                                         </h5>
-                                        <div class="text-secondary small mt-0.5">Authoritative audit ledger of past wireless deployments</div>
+                                        <div class="text-secondary small mt-0.5">Log of completed and cancelled firmware updates</div>
                                     </div>
                                     
                                     <!-- Status Filter Tabs: All, Completed, Cancelled -->

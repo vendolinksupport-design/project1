@@ -554,7 +554,7 @@ $currentDir  = 'machines';
 
                                 <!-- Right: Action Buttons -->
                                 <div class="d-flex align-items-center gap-2">
-                                    <?php if ($hasKey): ?>
+                                    <?php if ($hasKey && !$hasOwner): ?>
                                     <button type="button" class="btn btn-sm btn-outline-warning px-2.5 py-1" onclick="openSticker('<?= e($m['name'] ?: $m['machine_code']) ?>', '<?= e($m['device_mac'] ?? '') ?>', '<?= e($m['product_key']) ?>');" title="Print Machine Packaging Sticker or Share">
                                         <i class="bi bi-tag-fill me-1"></i>Sticker
                                     </button>
@@ -662,12 +662,18 @@ $currentDir  = 'machines';
                                                     <?php if ($hasKey): ?>
                                                         <div class="d-flex align-items-center gap-1.5 flex-wrap">
                                                             <span class="detail-value text-warning fw-bold fs-6 font-monospace text-break"><?= e($m['product_key']) ?></span>
-                                                            <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2 rounded-pill" style="font-size: 0.72rem;" onclick="copyKey('<?= e($m['product_key']) ?>', this);" title="Copy Key">
-                                                                <i class="bi bi-clipboard"></i> Copy
-                                                            </button>
-                                                            <button type="button" class="btn btn-sm btn-outline-info py-0 px-2 rounded-pill" style="font-size: 0.72rem;" onclick="openSticker('<?= e($m['name'] ?: $m['machine_code']) ?>', '<?= e($m['device_mac'] ?? '') ?>', '<?= e($m['product_key']) ?>');" title="Packaging Sticker">
-                                                                <i class="bi bi-tag-fill me-1"></i>Sticker
-                                                            </button>
+                                                            <?php if (!$hasOwner && strtoupper($m['pk_status'] ?? '') !== 'USED'): ?>
+                                                                <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2 rounded-pill" style="font-size: 0.72rem;" onclick="copyKey('<?= e($m['product_key']) ?>', this);" title="Copy Key">
+                                                                    <i class="bi bi-clipboard"></i> Copy
+                                                                </button>
+                                                                <button type="button" class="btn btn-sm btn-outline-info py-0 px-2 rounded-pill" style="font-size: 0.72rem;" onclick="openSticker('<?= e($m['name'] ?: $m['machine_code']) ?>', '<?= e($m['device_mac'] ?? '') ?>', '<?= e($m['product_key']) ?>');" title="Packaging Sticker">
+                                                                    <i class="bi bi-tag-fill me-1"></i>Sticker
+                                                                </button>
+                                                            <?php else: ?>
+                                                                <span class="badge bg-secondary bg-opacity-25 text-slate-400 font-monospace small">
+                                                                    <i class="bi bi-lock-fill me-1"></i>Activated
+                                                                </span>
+                                                            <?php endif; ?>
                                                         </div>
                                                     <?php else: ?>
                                                         <form method="POST" class="d-inline">
@@ -925,19 +931,22 @@ $currentDir  = 'machines';
                                                     <?php if ($hasKey): ?>
                                                         <div class="d-inline-flex align-items-center">
                                                             <span class="font-monospace text-warning fw-bold fs-6 text-break"><?= e($em['product_key']) ?></span>
-                                                            <button type="button" class="btn btn-sm btn-outline-warning ms-2 py-0 px-2 rounded-pill" style="font-size: 0.72rem;" onclick="copyKey('<?= e($em['product_key']) ?>', this);" title="Copy Key">
-                                                                <i class="bi bi-clipboard"></i> Copy
-                                                            </button>
-                                                            <button type="button" class="btn btn-sm btn-outline-info ms-1 py-0 px-2 rounded-pill" style="font-size: 0.72rem;" onclick="openSticker('<?= e($em['name'] ?: $em['machine_code']) ?>', '<?= e($em['device_mac'] ?? '') ?>', '<?= e($em['product_key']) ?>');" title="Print Packaging Sticker">
-                                                                <i class="bi bi-tag-fill"></i> Sticker
-                                                            </button>
+                                                            <?php if (!$isClaimed && strtoupper($em['pk_status'] ?? '') !== 'USED'): ?>
+                                                                <button type="button" class="btn btn-sm btn-outline-warning ms-2 py-0 px-2 rounded-pill" style="font-size: 0.72rem;" onclick="copyKey('<?= e($em['product_key']) ?>', this);" title="Copy Key">
+                                                                    <i class="bi bi-clipboard"></i> Copy
+                                                                </button>
+                                                                <button type="button" class="btn btn-sm btn-outline-info ms-1 py-0 px-2 rounded-pill" style="font-size: 0.72rem;" onclick="openSticker('<?= e($em['name'] ?: $em['machine_code']) ?>', '<?= e($em['device_mac'] ?? '') ?>', '<?= e($em['product_key']) ?>');" title="Print Packaging Sticker">
+                                                                    <i class="bi bi-tag-fill"></i> Sticker
+                                                                </button>
+                                                            <?php endif; ?>
                                                         </div>
                                                         <div class="mt-1 d-flex align-items-center gap-1">
-                                                            <span class="badge bg-light bg-opacity-10 text-light"><?= strtoupper(e($em['pk_status'])) ?></span>
-                                                            <?php if (strtoupper($em['pk_status'] ?? '') === 'USED' || $isClaimed): ?>
+                                                            <?php if ($isClaimed || strtoupper($em['pk_status'] ?? '') === 'USED'): ?>
                                                                 <span class="badge bg-secondary bg-opacity-25 text-slate-400 small" title="This key has already been activated once and cannot be reused">
                                                                     <i class="bi bi-lock-fill me-1"></i>One-Time Used
                                                                 </span>
+                                                            <?php else: ?>
+                                                                <span class="badge bg-light bg-opacity-10 text-light"><?= strtoupper(e($em['pk_status'])) ?></span>
                                                             <?php endif; ?>
                                                         </div>
                                                     <?php else: ?>
