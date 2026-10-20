@@ -556,12 +556,12 @@ $currentDir  = 'ota';
                                         <div class="text-secondary small mt-0.5">Real-time status of wireless updates in progress</div>
                                     </div>
                                     <?php if ($totalActive > 0): ?>
-                                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2.5 py-1 small">
-                                            <i class="bi bi-circle-fill me-1 small animate-pulse"></i> Live Auto-Sync
+                                        <span class="text-success small fw-medium d-inline-flex align-items-center">
+                                            <span class="me-2" style="width: 7px; height: 7px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Live Auto-Sync
                                         </span>
                                     <?php else: ?>
-                                        <span class="badge bg-secondary bg-opacity-20 text-secondary rounded-pill px-2.5 py-1 small">
-                                            Idle
+                                        <span class="text-secondary small fw-medium d-inline-flex align-items-center">
+                                            <span class="me-2" style="width: 7px; height: 7px; background: #64748b; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Idle
                                         </span>
                                     <?php endif; ?>
                                 </div>
@@ -590,7 +590,7 @@ $currentDir  = 'ota';
                                                             <?php if ($dep['target_type'] === 'all'): ?>
                                                                 General Rollout &bull; All Machines Nationwide
                                                             <?php elseif ($dep['target_type'] === 'customer'): ?>
-                                                                Customer Fleet: <?= e($dep['target_customer_name'] ?? 'Customer #' . $dep['target_id']) ?>
+                                                                Customer Group: <?= e($dep['target_customer_name'] ?? 'Customer #' . $dep['target_id']) ?>
                                                             <?php elseif ($dep['target_type'] === 'machine'): ?>
                                                                 Target Unit: <?= e($dep['target_machine_name'] ?: $dep['target_machine_code'] ?: 'Machine #' . $dep['target_id']) ?>
                                                             <?php endif; ?>
@@ -738,12 +738,12 @@ $currentDir  = 'ota';
                                                     </td>
                                                     <td>
                                                         <?php if ($dep['status'] === 'completed'): ?>
-                                                            <span class="badge bg-success bg-opacity-15 text-success border border-success border-opacity-25 rounded-pill px-2.5 py-1">
-                                                                 <i class="bi bi-check-circle-fill me-1"></i>Completed
+                                                            <span class="text-success small fw-medium d-inline-flex align-items-center">
+                                                                <span class="me-2" style="width: 7px; height: 7px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Completed
                                                             </span>
                                                         <?php else: ?>
-                                                            <span class="badge bg-secondary bg-opacity-25 text-muted rounded-pill px-2.5 py-1">
-                                                                Cancelled
+                                                            <span class="text-secondary small fw-medium d-inline-flex align-items-center">
+                                                                <span class="me-2" style="width: 7px; height: 7px; background: #64748b; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Cancelled
                                                             </span>
                                                         <?php endif; ?>
                                                     </td>
@@ -833,24 +833,21 @@ $currentDir  = 'ota';
                         <div class="col-12 col-lg-7">
                             <div class="admin-card">
                                 <h5 class="fw-bold text-light mb-3">
-                                    <i class="bi bi-journal-code text-info me-2"></i>Firmware Build Repository
+                                    <i class="bi bi-journal-code text-info me-2"></i>Firmware Library
                                 </h5>
                                 <div class="table-responsive">
                                     <table class="table table-dark admin-table mb-0">
                                         <thead>
                                             <tr>
-                                                <th>Version</th>
-                                                <th>Filename</th>
-                                                <th>Size</th>
-                                                <th>Status</th>
-                                                <th>Uploaded</th>
-                                                <th class="text-end">Action</th>
+                                                <th style="width: 55%;">Version &bull; Filename</th>
+                                                <th style="width: 25%;">Status</th>
+                                                <th style="width: 20%;" class="text-end">Action</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <?php if (empty($otaReleases)): ?>
                                             <tr>
-                                                <td colspan="6" class="text-center py-4 text-secondary">
+                                                <td colspan="3" class="text-center py-4 text-secondary">
                                                     No firmware builds uploaded yet.
                                                 </td>
                                             </tr>
@@ -858,30 +855,27 @@ $currentDir  = 'ota';
                                                 <?php foreach ($otaReleases as $rel): ?>
                                                 <tr>
                                                     <td>
-                                                        <span class="badge bg-info bg-opacity-15 text-info border border-info border-opacity-30 rounded-pill px-2.5 py-1 fw-bold font-monospace">
-                                                            <?= e($rel['version']) ?>
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        <div class="text-light fw-medium font-monospace small"><i class="bi bi-file-earmark-binary text-primary me-1"></i><?= e($rel['filename']) ?></div>
-                                                        <div class="small text-secondary mt-0.5"><?= e(mb_strimwidth($rel['changelog'] ?? '', 0, 45, '...')) ?></div>
-                                                    </td>
-                                                    <td class="small text-secondary font-monospace">
-                                                        <?= number_format($rel['filesize'] / 1024, 1) ?> KB
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <span class="fw-bold text-info font-monospace small"><?= e($rel['version']) ?></span>
+                                                            <span class="text-light fw-medium font-monospace small"><?= e($rel['filename']) ?></span>
+                                                        </div>
+                                                        <div class="small text-secondary mt-0.5 font-monospace">
+                                                            <?= number_format($rel['filesize'] / 1024, 1) ?> KB &bull; <?= date('M d, Y', strtotime($rel['created_at'])) ?>
+                                                            <?php if (!empty($rel['changelog'])): ?>
+                                                                <span class="text-muted ms-1">&bull; <?= e(mb_strimwidth($rel['changelog'], 0, 40, '...')) ?></span>
+                                                            <?php endif; ?>
+                                                        </div>
                                                     </td>
                                                     <td>
                                                         <?php if (!empty($rel['is_latest'])): ?>
-                                                            <span class="badge bg-success bg-opacity-15 text-success border border-success border-opacity-30 rounded-pill px-2.5 py-1 fw-semibold">
-                                                                <i class="bi bi-check2 me-1"></i>Latest
+                                                            <span class="text-success small fw-medium d-inline-flex align-items-center">
+                                                                <span class="me-2" style="width: 7px; height: 7px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Latest
                                                             </span>
                                                         <?php else: ?>
-                                                            <span class="badge bg-secondary bg-opacity-20 text-slate-300 border border-secondary border-opacity-25 rounded-pill px-2.5 py-1 fw-semibold">
-                                                                Archived
+                                                            <span class="text-secondary small fw-medium d-inline-flex align-items-center">
+                                                                <span class="me-2" style="width: 7px; height: 7px; background: #64748b; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Archived
                                                             </span>
                                                         <?php endif; ?>
-                                                    </td>
-                                                    <td class="small text-secondary font-monospace">
-                                                        <?= date('M d, Y', strtotime($rel['created_at'])) ?>
                                                     </td>
                                                     <td class="text-end">
                                                         <form method="POST" class="d-inline" onsubmit="return confirm('Permanently delete firmware build v<?= e(ltrim($rel['version'], 'v')) ?>?');">

@@ -201,7 +201,7 @@ if (!function_exists('sales_url')) {
                 </div>
                 <div class="page-header-actions">
                     <div class="page-date text-light">
-                        <?= lucide_icon('calendar', 'me-1') ?><?= date('l, F j, Y') ?>
+                        <?= date('l, F j, Y') ?>
                     </div>
                 </div>
             </div>

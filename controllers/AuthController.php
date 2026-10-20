@@ -513,10 +513,10 @@ TEXT;
             redirect('auth/register.php');
         }
 
-        // Password requirements (min 8 chars)
-        if (strlen($password) < 8) {
+        // Password requirements (min 8 chars, alphanumeric)
+        if (strlen($password) < 8 || !preg_match('/[A-Za-z]/', $password) || !preg_match('/[0-9]/', $password)) {
             $setFormData();
-            flash('danger', 'Password must be at least 8 characters long.');
+            flash('danger', 'Password must be at least 8 characters long and contain both letters and numbers.');
             redirect('auth/register.php');
         }
 

@@ -299,7 +299,7 @@ if (!function_exists('build_archive_url')) {
                         <i class="bi bi-shield-lock me-1"></i>Audit Records
                     </span>
                     <div class="page-date">
-                        <i class="bi bi-calendar3 me-1"></i><?= date('l, F j, Y') ?>
+                        <?= date('l, F j, Y') ?>
                     </div>
                 </div>
             </div>

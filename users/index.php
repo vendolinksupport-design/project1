@@ -128,7 +128,7 @@ function build_user_filter_url(array $overrides = []): string
                         <i class="bi bi-person-plus me-1"></i>Add User
                     </button>
                     <div class="page-date text-light">
-                        <i class="bi bi-calendar3 me-1"></i><?= date('l, F j, Y') ?>
+                        <?= date('l, F j, Y') ?>
                     </div>
                 </div>
             </div>
@@ -449,14 +449,15 @@ function build_user_filter_url(array $overrides = []): string
 
                     <!-- Initial Password -->
                     <div class="mb-3">
-                        <label for="add_password" class="form-label text-light small">Initial Password (min 8 chars)</label>
+                        <label for="add_password" class="form-label text-light small">Initial Password (min 8 alphanumeric)</label>
                         <div class="input-password-wrapper">
-                            <input type="password" class="form-control dark-input text-white" id="add_password" name="password" placeholder="Leave blank to auto-generate">
+                            <input type="password" class="form-control dark-input text-white" id="add_password" name="password" placeholder="Leave blank to auto-generate"
+                                   data-target-rules="#add_password_rules">
                             <button type="button" class="password-toggle" aria-label="Toggle password">
                                 <i class="bi bi-eye"></i>
                             </button>
                         </div>
-                        <div class="form-text text-muted small">If left blank, a secure temporary password will be generated.</div>
+                        <div id="add_password_rules" class="text-slate-400 small mt-1" data-default-text="If left blank, a secure temporary password will be generated.">If left blank, a secure temporary password will be generated.</div>
                     </div>
 
                     <!-- Status -->
@@ -567,22 +568,27 @@ function build_user_filter_url(array $overrides = []): string
                     <div class="mb-3">
                         <label for="pwd_new_password" class="form-label text-light small">New Password <span class="text-danger">*</span></label>
                         <div class="input-password-wrapper">
-                            <input type="password" class="form-control dark-input text-white" id="pwd_new_password" name="new_password" required minlength="8" placeholder="Min. 8 characters">
+                            <input type="password" class="form-control dark-input text-white" id="pwd_new_password" name="new_password" required minlength="8" placeholder="Min. 8 alphanumeric"
+                                   data-target-rules="#pwd_new_rules"
+                                   data-target-match="#pwd_match_hint">
                             <button type="button" class="password-toggle" aria-label="Toggle password">
                                 <i class="bi bi-eye"></i>
                             </button>
                         </div>
+                        <div id="pwd_new_rules" class="text-slate-400 small mt-1" data-default-text="Must be at least 8 characters with letters and numbers.">Must be at least 8 characters with letters and numbers.</div>
                     </div>
 
                     <!-- Confirm Password -->
                     <div class="mb-3">
                         <label for="pwd_confirm_password" class="form-label text-light small">Confirm New Password <span class="text-danger">*</span></label>
                         <div class="input-password-wrapper">
-                            <input type="password" class="form-control dark-input text-white" id="pwd_confirm_password" name="confirm_password" required minlength="8" placeholder="Re-enter password">
+                            <input type="password" class="form-control dark-input text-white" id="pwd_confirm_password" name="confirm_password" required minlength="8" placeholder="Re-enter password"
+                                   data-target-match="#pwd_match_hint">
                             <button type="button" class="password-toggle" aria-label="Toggle password">
                                 <i class="bi bi-eye"></i>
                             </button>
                         </div>
+                        <div id="pwd_match_hint" class="mt-1"></div>
                     </div>
                 </div>
 

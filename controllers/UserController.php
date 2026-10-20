@@ -101,8 +101,8 @@ class UserController
         // If no password provided, generate a random temporary password
         if (empty($password)) {
             $password = generate_token(12);
-        } elseif (strlen($password) < 8) {
-            flash('danger', 'Password must be at least 8 characters long.');
+        } elseif (strlen($password) < 8 || !preg_match('/[A-Za-z]/', $password) || !preg_match('/[0-9]/', $password)) {
+            flash('danger', 'Password must be at least 8 characters long and contain both letters and numbers.');
             redirect('users/index.php');
         }
 
@@ -247,8 +247,8 @@ class UserController
             redirect('users/index.php');
         }
 
-        if (strlen($newPassword) < 8) {
-            flash('danger', 'Password must be at least 8 characters long.');
+        if (strlen($newPassword) < 8 || !preg_match('/[A-Za-z]/', $newPassword) || !preg_match('/[0-9]/', $newPassword)) {
+            flash('danger', 'Password must be at least 8 characters long and contain both letters and numbers.');
             redirect('users/index.php');
         }
 

@@ -52,9 +52,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $email    = trim($_POST['email'] ?? '');
             $username = trim($_POST['username'] ?? '');
             $password = trim($_POST['password'] ?? '');
+            $confirmPassword = trim($_POST['confirm_password'] ?? '');
 
             if (empty($fullName) || empty($email) || empty($username)) {
                 $flashError = "Full Name, Email Address, and Username are required fields.";
+            } elseif (!empty($password) && (strlen($password) < 8 || !preg_match('/[A-Za-z]/', $password) || !preg_match('/[0-9]/', $password))) {
+                $flashError = "New password must be at least 8 characters long and contain both letters and numbers.";
+            } elseif (!empty($password) && $password !== $confirmPassword) {
+                $flashError = "Passwords do not match.";
             } else {
                 if ($dashboardModel->updateCustomerAccount($userId, $fullName, $email, $username, $password ?: null)) {
                     $flashSuccess = "Customer account details updated successfully for <strong>" . e($fullName) . "</strong>!";
@@ -118,21 +123,8 @@ $currentDir  = 'customers';
         .admin-stat-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.4);
+            border-color: rgba(148, 163, 184, 0.3) !important;
         }
-
-        .admin-stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-        }
-
-        .admin-stat-primary::before { background: var(--vl-primary, #0ea5e9); }
-        .admin-stat-success::before { background: var(--vl-success, #22c55e); }
-        .admin-stat-info::before    { background: var(--vl-info, #38bdf8); }
-        .admin-stat-warning::before { background: var(--vl-warning, #f59e0b); }
 
         .admin-stat-icon {
             width: 48px;
@@ -223,6 +215,33 @@ $currentDir  = 'customers';
             color: #38bdf8 !important;
         }
 
+        /* Decoupled Machine Cell & Independent Drawer Button */
+        .table.admin-table td.machine-cell {
+            position: relative;
+        }
+
+        .table.admin-table .machine-count-badge {
+            display: inline-block;
+            font-size: 0.875rem;
+        }
+
+        .table.admin-table .machine-drawer-btn {
+            position: absolute;
+            right: 1.25rem;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 24px;
+            height: 24px;
+            color: #94a3b8;
+            font-size: 0.95rem;
+            transition: color 0.2s ease-in-out;
+            cursor: pointer;
+        }
+
+        .table.admin-table tbody tr.customer-row:hover .machine-drawer-btn {
+            color: #f8fafc;
+        }
+
         .table.admin-table tbody tr.customer-drawer-row:hover > * {
             background-color: transparent !important;
         }
@@ -306,50 +325,10 @@ $currentDir  = 'customers';
                 </div>
             <?php endif; ?>
 
-            <!-- Metrics Summary Cards (3 Cards) -->
-            <div class="row g-3 mb-4">
-                <div class="col-12 col-md-4">
-                    <div class="admin-stat-card admin-stat-primary">
-                        <div>
-                            <div class="admin-stat-value"><?= (int)($metrics['total_customers'] ?? 0) ?></div>
-                            <div class="admin-stat-label">Total Customers</div>
-                        </div>
-                        <div class="admin-stat-icon bg-primary bg-opacity-10 text-primary">
-                            <i class="bi bi-people-fill"></i>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-12 col-md-4">
-                    <div class="admin-stat-card admin-stat-success">
-                        <div>
-                            <div class="admin-stat-value text-success"><?= (int)($metrics['active_customers'] ?? 0) ?></div>
-                            <div class="admin-stat-label">Active Customers</div>
-                        </div>
-                        <div class="admin-stat-icon bg-success bg-opacity-10 text-success">
-                            <i class="bi bi-person-check-fill"></i>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-12 col-md-4">
-                    <div class="admin-stat-card admin-stat-info">
-                        <div>
-                            <div class="admin-stat-value text-info"><?= (int)($metrics['total_machines'] ?? 0) ?></div>
-                            <div class="admin-stat-label">Machines</div>
-                        </div>
-                        <div class="admin-stat-icon bg-info bg-opacity-10 text-info">
-                            <i class="bi bi-cpu-fill"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- Customers Table Card -->
             <div class="admin-card">
-                <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between mb-3 gap-2">
-                    <h5 class="fw-bold text-light mb-0"><i class="bi bi-people-fill me-2 text-info"></i><?= term('customers') ?></h5>
-                    <span class="text-secondary small"><i class="bi bi-info-circle me-1"></i>Click any customer to view connected machines & details</span>
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="text-secondary small"><i class="bi bi-info-circle me-1 text-info"></i>Click any customer row to view connected machines and details</span>
                 </div>
 
                 <div class="table-responsive">
@@ -359,7 +338,7 @@ $currentDir  = 'customers';
                                 <th style="width: 35%;">Owner / Customer</th>
                                 <th style="width: 30%;">Email & Username</th>
                                 <th style="width: 15%;">Account Status</th>
-                                <th style="width: 20%;" class="text-end pe-3">Machines &bull; Details</th>
+                                <th style="width: 20%;" class="text-center">Machines</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -378,10 +357,7 @@ $currentDir  = 'customers';
                                                 <?= strtoupper(mb_substr($c['full_name'] ?? 'U', 0, 1)) ?>
                                             </div>
                                             <div>
-                                                <div class="d-flex align-items-center gap-2">
-                                                    <span class="fw-bold text-light"><?= e($c['full_name']) ?></span>
-                                                    <i class="bi bi-chevron-down chevron-icon text-muted small"></i>
-                                                </div>
+                                                <div class="fw-bold text-light"><?= e($c['full_name']) ?></div>
                                                 <div class="small text-secondary">Owner ID #<?= (int)$c['id'] ?></div>
                                             </div>
                                         </div>
@@ -392,24 +368,24 @@ $currentDir  = 'customers';
                                     </td>
                                     <td>
                                         <?php if ($c['status'] === 'active'): ?>
-                                            <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1.5 fw-semibold">
-                                                <i class="bi bi-circle-fill me-1 small"></i>Active
+                                            <span class="text-success small fw-medium d-inline-flex align-items-center">
+                                                <span class="me-2" style="width: 7px; height: 7px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Active
                                             </span>
                                         <?php else: ?>
-                                            <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 rounded-pill px-3 py-1.5 fw-semibold">
-                                                <i class="bi bi-slash-circle me-1 small"></i>Inactive
+                                            <span class="text-secondary small fw-medium d-inline-flex align-items-center">
+                                                <span class="me-2" style="width: 7px; height: 7px; background: #64748b; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Inactive
                                             </span>
                                         <?php endif; ?>
                                     </td>
-                                    <td class="text-end pe-3">
-                                        <div class="d-inline-flex align-items-center gap-2">
-                                            <span class="badge <?= !empty($c['machines']) ? 'bg-primary bg-opacity-15 text-primary border border-primary border-opacity-25' : 'bg-dark text-secondary border border-secondary border-opacity-25' ?> rounded-pill px-2.5 py-1 font-monospace">
-                                                <i class="bi bi-cpu me-1"></i><?= (int)$c['total_machines'] ?> <?= (int)$c['total_machines'] === 1 ? 'Machine' : 'Machines' ?>
-                                            </span>
-                                            <span class="btn btn-sm btn-outline-secondary p-0 rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 26px; height: 26px;">
-                                                <i class="bi bi-chevron-down chevron-icon small"></i>
-                                            </span>
-                                        </div>
+                                    <td class="text-center machine-cell">
+                                        <!-- Independent Centered Machine Count -->
+                                        <span class="fw-bold text-white small font-monospace machine-count-badge" title="<?= (int)$c['total_machines'] ?> <?= (int)$c['total_machines'] === 1 ? 'Machine' : 'Machines' ?>">
+                                            <?= (int)$c['total_machines'] ?>
+                                        </span>
+                                        <!-- Independent Dropdown Toggle Chevron (single icon, clean without circle) -->
+                                        <span class="machine-drawer-btn d-inline-flex align-items-center justify-content-center" aria-label="Toggle machines drawer">
+                                            <i class="bi bi-chevron-down chevron-icon"></i>
+                                        </span>
                                     </td>
                                 </tr>
 
@@ -421,8 +397,7 @@ $currentDir  = 'customers';
                                                 <div class="row g-4">
                                                     <!-- Left: Customer Profile & Quick Actions -->
                                                     <div class="col-12 col-lg-4 col-xl-3 border-end border-secondary border-opacity-10">
-                                                        <div class="d-flex align-items-center gap-2 mb-3">
-                                                            <i class="bi bi-person-lines-fill text-primary"></i>
+                                                        <div class="mb-3">
                                                             <span class="fw-bold text-light text-uppercase small tracking-wide">Owner Profile</span>
                                                         </div>
 
@@ -430,12 +405,12 @@ $currentDir  = 'customers';
                                                             <div class="mb-2">
                                                                 <span class="text-secondary small d-block mb-1">Email Verification</span>
                                                                 <?php if (!empty($c['email_verified'])): ?>
-                                                                    <span class="badge bg-success bg-opacity-15 text-success border border-success border-opacity-25 rounded-pill px-2.5 py-1 small">
-                                                                        <i class="bi bi-patch-check-fill me-1"></i>Verified
+                                                                    <span class="text-success small fw-medium d-inline-flex align-items-center">
+                                                                        <span class="me-2" style="width: 7px; height: 7px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Verified
                                                                     </span>
                                                                 <?php else: ?>
-                                                                    <span class="badge bg-warning bg-opacity-15 text-warning border border-warning border-opacity-25 rounded-pill px-2.5 py-1 small">
-                                                                        <i class="bi bi-clock-history me-1"></i>Pending OTP
+                                                                    <span class="text-warning small fw-medium d-inline-flex align-items-center">
+                                                                        <span class="me-2" style="width: 7px; height: 7px; background: #f59e0b; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0;"></span>Pending OTP
                                                                     </span>
                                                                 <?php endif; ?>
                                                             </div>
@@ -445,7 +420,7 @@ $currentDir  = 'customers';
                                                             </div>
                                                             <div>
                                                                 <span class="text-secondary small d-block">Account Role</span>
-                                                                <span class="badge bg-dark border border-secondary border-opacity-25 text-light small">Owner</span>
+                                                                <span class="text-light small fw-medium">Owner</span>
                                                             </div>
                                                         </div>
 
@@ -484,13 +459,12 @@ $currentDir  = 'customers';
                                                         </div>
                                                     </div>
 
-                                                    <!-- Right: Connected Machines Fleet -->
+                                                    <!-- Right: Connected Machines -->
                                                     <div class="col-12 col-lg-8 col-xl-9">
                                                         <div class="d-flex align-items-center justify-content-between mb-3">
                                                             <div class="d-flex align-items-center gap-2">
-                                                                <i class="bi bi-cpu-fill text-info"></i>
                                                                 <span class="fw-bold text-light text-uppercase small tracking-wide">Connected Machines</span>
-                                                                <span class="badge bg-secondary bg-opacity-25 text-info rounded-pill font-monospace"><?= count($c['machines']) ?></span>
+                                                                <span class="fw-bold text-info fs-6 font-monospace ms-1">(<?= count($c['machines']) ?>)</span>
                                                             </div>
                                                         </div>
 
@@ -620,7 +594,28 @@ $currentDir  = 'customers';
 
                                         <div class="mb-3">
                                             <label class="form-label text-secondary small fw-bold">NEW PASSWORD (OPTIONAL)</label>
-                                            <input type="password" name="password" class="form-control bg-dark text-light border-secondary border-opacity-25" placeholder="Leave blank to keep current password">
+                                            <div class="input-group">
+                                                <input type="password" name="password" class="form-control bg-dark text-light border-secondary border-opacity-25 edit-admin-password" placeholder="Leave blank to keep current password"
+                                                       data-target-confirm="#confirmCustGroup<?= (int)$c['id'] ?>"
+                                                       data-target-rules="#rulesCustGroup<?= (int)$c['id'] ?>"
+                                                       data-target-match="#matchCustGroup<?= (int)$c['id'] ?>">
+                                                <button class="btn btn-outline-secondary border-secondary border-opacity-25 toggle-password-btn text-light" type="button" aria-label="Show password">
+                                                    <i class="bi bi-eye"></i>
+                                                </button>
+                                            </div>
+                                            <div id="rulesCustGroup<?= (int)$c['id'] ?>" class="text-slate-400 small mt-1">Leave blank unless you wish to change the password.</div>
+                                        </div>
+
+                                        <div class="mb-3 d-none" id="confirmCustGroup<?= (int)$c['id'] ?>">
+                                            <label class="form-label text-secondary small fw-bold">CONFIRM NEW PASSWORD</label>
+                                            <div class="input-group">
+                                                <input type="password" name="confirm_password" class="form-control bg-dark text-light border-secondary border-opacity-25 edit-admin-confirm" placeholder="Re-enter new password"
+                                                       data-target-match="#matchCustGroup<?= (int)$c['id'] ?>">
+                                                <button class="btn btn-outline-secondary border-secondary border-opacity-25 toggle-password-btn text-light" type="button" aria-label="Show password">
+                                                    <i class="bi bi-eye"></i>
+                                                </button>
+                                            </div>
+                                            <div id="matchCustGroup<?= (int)$c['id'] ?>" class="mt-1"></div>
                                         </div>
                                     </div>
                                     <div class="modal-footer border-secondary border-opacity-25">

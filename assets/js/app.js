@@ -434,8 +434,9 @@ function initPasswordToggle() {
     if (window._vendoLinkPasswordToggleInitialized) return;
     window._vendoLinkPasswordToggleInitialized = true;
 
+    // 1. Universal Eyeball Click Delegation
     document.addEventListener('click', function (e) {
-        const btn = e.target.closest('.password-toggle');
+        const btn = e.target.closest('.password-toggle, .toggle-password-btn');
         if (!btn) return;
 
         e.preventDefault();
@@ -459,6 +460,107 @@ function initPasswordToggle() {
             if (icon) {
                 icon.classList.remove('bi-eye-slash');
                 icon.classList.add('bi-eye');
+            }
+        }
+    });
+
+    // 2. Delegated Input Handler for Dynamic Confirm Password & Live Match/Alphanumeric Feedback
+    document.addEventListener('input', function (e) {
+        const input = e.target;
+        if (!input) return;
+
+        // Dynamic reveal of confirm password field in edit modals & live alphanumeric rule check
+        if (input.classList.contains('edit-admin-password') || input.dataset.targetConfirm || input.dataset.targetRules) {
+            const targetConfirmSelector = input.dataset.targetConfirm;
+            const confirmGroup = targetConfirmSelector ? document.querySelector(targetConfirmSelector) : null;
+            const val = input.value.trim();
+            const rulesEl = input.dataset.targetRules ? document.querySelector(input.dataset.targetRules) : null;
+
+            if (confirmGroup) {
+                const confirmInput = confirmGroup.querySelector('input');
+                if (val.length > 0) {
+                    confirmGroup.classList.remove('d-none');
+                    if (confirmInput) confirmInput.required = true;
+                } else {
+                    confirmGroup.classList.add('d-none');
+                    if (confirmInput) {
+                        confirmInput.required = false;
+                        confirmInput.value = '';
+                    }
+                    const matchEl = input.dataset.targetMatch ? document.querySelector(input.dataset.targetMatch) : null;
+                    if (matchEl) matchEl.innerHTML = '';
+                    if (rulesEl) {
+                        rulesEl.innerHTML = rulesEl.dataset.defaultText || 'Leave blank unless you wish to change the password.';
+                    }
+                    return;
+                }
+            }
+
+            // Alphanumeric and length live rule check
+            if (rulesEl && val.length > 0) {
+                const isLenOk = val.length >= 8;
+                const isAlphaNum = /[A-Za-z]/.test(val) && /[0-9]/.test(val);
+                if (isLenOk && isAlphaNum) {
+                    rulesEl.innerHTML = '<span class="text-success small fw-medium"><i class="bi bi-check-circle-fill me-1"></i>8+ characters with letters and numbers</span>';
+                } else if (!isLenOk) {
+                    rulesEl.innerHTML = '<span class="text-danger small fw-medium"><i class="bi bi-x-circle me-1"></i>Must be at least 8 characters long</span>';
+                } else {
+                    rulesEl.innerHTML = '<span class="text-danger small fw-medium"><i class="bi bi-x-circle me-1"></i>Must contain both letters and numbers</span>';
+                }
+            } else if (rulesEl && val.length === 0) {
+                rulesEl.innerHTML = rulesEl.dataset.defaultText || (confirmGroup ? 'Leave blank unless you wish to change the password.' : 'Must be at least 8 characters with letters and numbers.');
+            }
+        }
+
+        // Live Match check for confirm password inputs
+        if (input.dataset.targetMatch || input.classList.contains('edit-admin-confirm') || input.id === 'addAdminConfirmPassword' || input.id === 'addAdminPassword') {
+            let pwVal = '';
+            let confirmVal = '';
+            let matchEl = null;
+
+            if (input.id === 'addAdminPassword' || input.id === 'addAdminConfirmPassword') {
+                const pwInput = document.getElementById('addAdminPassword');
+                const confirmInput = document.getElementById('addAdminConfirmPassword');
+                matchEl = document.getElementById('addAdminPwMatch');
+                const rulesEl = document.getElementById('addAdminPwRules');
+                pwVal = pwInput ? pwInput.value : '';
+                confirmVal = confirmInput ? confirmInput.value : '';
+
+                if (rulesEl && pwVal.length > 0) {
+                    const isLenOk = pwVal.length >= 8;
+                    const isAlphaNum = /[A-Za-z]/.test(pwVal) && /[0-9]/.test(pwVal);
+                    if (isLenOk && isAlphaNum) {
+                        rulesEl.innerHTML = '<span class="text-success small fw-medium"><i class="bi bi-check-circle-fill me-1"></i>8+ characters with letters and numbers</span>';
+                    } else if (!isLenOk) {
+                        rulesEl.innerHTML = '<span class="text-danger small fw-medium"><i class="bi bi-x-circle me-1"></i>Must be at least 8 characters long</span>';
+                    } else {
+                        rulesEl.innerHTML = '<span class="text-danger small fw-medium"><i class="bi bi-x-circle me-1"></i>Must contain both letters and numbers</span>';
+                    }
+                } else if (rulesEl && pwVal.length === 0) {
+                    rulesEl.innerHTML = 'Must be at least 8 characters with letters and numbers.';
+                }
+            } else {
+                const modal = input.closest('.modal, form');
+                if (modal) {
+                    const pwInput = modal.querySelector('.edit-admin-password, input[name="password"], input[name="new_password"]');
+                    const confirmInput = modal.querySelector('.edit-admin-confirm, input[name="confirm_password"]');
+                    pwVal = pwInput ? pwInput.value : '';
+                    confirmVal = confirmInput ? confirmInput.value : '';
+                    const matchSelector = (confirmInput && confirmInput.dataset.targetMatch) || (pwInput && pwInput.dataset.targetMatch);
+                    if (matchSelector) {
+                        matchEl = document.querySelector(matchSelector);
+                    }
+                }
+            }
+
+            if (matchEl) {
+                if (confirmVal.length === 0) {
+                    matchEl.innerHTML = '';
+                } else if (pwVal === confirmVal) {
+                    matchEl.innerHTML = '<span class="text-success small fw-medium"><i class="bi bi-check-circle-fill me-1"></i>Passwords match</span>';
+                } else {
+                    matchEl.innerHTML = '<span class="text-danger small fw-medium"><i class="bi bi-x-circle-fill me-1"></i>Passwords do not match</span>';
+                }
             }
         }
     });
@@ -727,7 +829,7 @@ window.VendoLink.sendBackgroundNotification = function (title, body, url = null)
                 navigator.serviceWorker.ready.then(function (reg) {
                     reg.showNotification(title, {
                         body: body,
-                        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="%230eac5e"/><text y=".75em" x="15" font-size="70" fill="white">⚡</text></svg>',
+                        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="%230eac5e"/><polygon points="55,15 25,55 50,55 45,85 75,45 50,45" fill="white"/></svg>',
                         vibrate: [200, 100, 200],
                         data: { url: url }
                     });
@@ -918,7 +1020,7 @@ function initNotificationPoller() {
                         // Trigger Web Notification / Toast if enabled
                         if (data.web_notif_enabled && window.VendoLink) {
                             if (typeof window.VendoLink.toast === 'function') {
-                                window.VendoLink.toast('🔔 ' + alert.title + ': ' + alert.message, alert.type === 'danger' ? 'danger' : 'warning', 6000);
+                                window.VendoLink.toast(alert.title + ': ' + alert.message, alert.type === 'danger' ? 'danger' : 'warning', 6000);
                             }
                             if (typeof window.VendoLink.sendBackgroundNotification === 'function') {
                                 window.VendoLink.sendBackgroundNotification(alert.title, alert.message, alert.action_link || `${baseUrl}/dashboard/alerts.php`);

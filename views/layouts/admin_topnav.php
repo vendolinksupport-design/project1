@@ -37,7 +37,9 @@ if ($currentPage === 'index' && isset($pageLabels[$currentDir])) {
             <span class="hamburger-line"></span>
         </button>
         <div class="topnav-pagetitle d-none d-sm-flex align-items-center">
-            <span class="topnav-pagetitle-text"><?= e($pageLabel) ?></span>
+            <span class="text-secondary small fw-medium">Admin</span>
+            <span class="mx-2 text-secondary opacity-50 small">/</span>
+            <span class="topnav-pagetitle-text small fw-semibold text-light"><?= e($pageLabel) ?></span>
         </div>
     </div>
 

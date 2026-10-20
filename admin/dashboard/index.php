@@ -181,27 +181,9 @@ function mask_product_key(string $key): string {
         .admin-stat-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.35);
+            border-color: rgba(148, 163, 184, 0.3) !important;
             text-decoration: none !important;
         }
-
-        .admin-stat-primary:hover { border-color: rgba(14, 165, 233, 0.45); }
-        .admin-stat-info:hover    { border-color: rgba(16, 185, 129, 0.45); }
-        .admin-stat-warning:hover { border-color: rgba(245, 158, 11, 0.45); }
-        .admin-stat-indigo:hover  { border-color: rgba(99, 102, 241, 0.45); }
-
-        .admin-stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-        }
-
-        .admin-stat-primary::before { background: #0ea5e9; }
-        .admin-stat-info::before    { background: #10b981; }
-        .admin-stat-warning::before { background: #f59e0b; }
-        .admin-stat-indigo::before  { background: #6366f1; }
 
         .admin-stat-icon {
             width: 44px;
@@ -467,7 +449,7 @@ function mask_product_key(string $key): string {
                     </p>
                 </div>
                 <div class="page-header-actions d-flex align-items-center flex-shrink-0">
-                    <div class="page-date text-slate-300 bg-slate-900 border border-slate-800 rounded-pill px-3 py-1.5 d-inline-flex align-items-center text-nowrap shadow-sm" style="gap: 10px;">
+                    <div class="page-date text-slate-300 d-inline-flex align-items-center text-nowrap" style="gap: 10px;">
                         <!-- Live Status Indicator -->
                         <div class="d-inline-flex align-items-center">
                             <span class="live-dot me-1.5" style="width: 8px; height: 8px; background: #22c55e; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);"></span>
@@ -477,18 +459,12 @@ function mask_product_key(string $key): string {
                         <span class="text-slate-600">&bull;</span>
 
                         <!-- Calendar Date -->
-                        <div class="d-inline-flex align-items-center text-slate-300 small">
-                            <i class="bi bi-calendar3 me-1.5 text-info"></i>
-                            <span class="fw-medium"><?= date('l, F j, Y') ?></span>
-                        </div>
+                        <span class="fw-medium text-slate-300 small"><?= date('l, F j, Y') ?></span>
 
                         <span class="text-slate-600">&bull;</span>
 
-                        <!-- Sizable Digital Clock Badge -->
-                        <div class="d-inline-flex align-items-center bg-slate-950 border border-slate-700 border-opacity-60 rounded-pill px-2.5 py-1 text-warning shadow-sm">
-                            <i class="bi bi-clock-fill me-1.5 text-warning" style="font-size: 0.95rem;"></i>
-                            <span id="adminClockDisplay" class="clock-display font-monospace text-white fw-bold fs-6" style="letter-spacing: 0.5px; line-height: 1;"><?= date('h:i A') ?></span>
-                        </div>
+                        <!-- Live Digital Clock Display -->
+                        <span id="adminClockDisplay" class="clock-display font-monospace text-white fw-bold fs-6" style="letter-spacing: 0.5px; line-height: 1;"><?= date('h:i A') ?></span>
                     </div>
                 </div>
             </div>

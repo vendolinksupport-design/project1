@@ -546,6 +546,21 @@ class User
     }
 
     /**
+     * Count active administrator accounts.
+     * Used to prevent deactivating the last active administrator.
+     *
+     * @return int
+     */
+    public function countActiveAdmins(): int
+    {
+        $row = $this->db->query(
+            "SELECT COUNT(*) AS total FROM users WHERE role = 'administrator' AND status = 'active'"
+        )->fetch();
+
+        return (int) ($row['total'] ?? 0);
+    }
+
+    /**
      * Retrieve paginated users matching active filters.
      *
      * @param array $filters [search, role, status]
@@ -698,9 +713,24 @@ class User
             throw new InvalidArgumentException('User not found.');
         }
 
-        if ($newStatus === 'inactive' && in_array($user['role'], [ROLE_OWNER, ROLE_ADMIN], true)) {
-            if ($this->countActiveOwners() <= 1 && $user['status'] === 'active') {
-                throw new DomainException('Cannot disable the last active Owner account.');
+        if ($newStatus === 'inactive') {
+            // Master Admin protection
+            if (($user['email'] ?? '') === 'vendolink.support@gmail.com' || (int)$id === 1) {
+                throw new DomainException('Cannot deactivate the Master Admin account.');
+            }
+
+            // Last active administrator protection
+            if (($user['role'] ?? '') === ROLE_ADMIN) {
+                if ($this->countActiveAdmins() <= 1 && ($user['status'] ?? '') === 'active') {
+                    throw new DomainException('Cannot deactivate the only active administrator account. At least one administrator must remain active.');
+                }
+            }
+
+            // Owner protection
+            if (in_array($user['role'], [ROLE_OWNER, ROLE_ADMIN], true)) {
+                if ($this->countActiveOwners() <= 1 && $user['status'] === 'active') {
+                    throw new DomainException('Cannot disable the last active Owner account.');
+                }
             }
         }
 

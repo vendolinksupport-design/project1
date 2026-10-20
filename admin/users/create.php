@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
     $email    = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
-    $confirm  = $_POST['confirm'] ?? '';
+    $confirm  = $_POST['confirm'] ?? $_POST['confirm_password'] ?? '';
 
     if (empty($fullName)) {
         $errors[] = 'Full Name is required.';
@@ -42,8 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($userModel->findByEmail($email)) {
         $errors[] = 'Email is already taken.';
     }
-    if (strlen($password) < 8) {
-        $errors[] = 'Password must be at least 8 characters.';
+    if (strlen($password) < 8 || !preg_match('/[A-Za-z]/', $password) || !preg_match('/[0-9]/', $password)) {
+        $errors[] = 'Password must be at least 8 characters long and contain both letters and numbers.';
     }
     if ($password !== $confirm) {
         $errors[] = 'Passwords do not match.';
@@ -128,13 +128,27 @@ $userModel   = new User();
                     
                     <div class="mb-3">
                         <label class="form-label text-white fw-semibold small mb-1.5" style="user-select: none;">Password <span class="text-danger">*</span></label>
-                        <input type="password" name="password" class="form-control dark-input" placeholder="Min. 8 characters" minlength="8" required>
-                        <div class="text-slate-400 small mt-1">Must be at least 8 characters long.</div>
+                        <div class="input-group">
+                            <input type="password" name="password" class="form-control dark-input" placeholder="Min. 8 alphanumeric" minlength="8" required
+                                   data-target-rules="#create_admin_rules"
+                                   data-target-match="#create_admin_match">
+                            <button type="button" class="btn btn-outline-secondary border-secondary border-opacity-25 toggle-password-btn text-light" aria-label="Show password">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                        <div id="create_admin_rules" class="text-slate-400 small mt-1" data-default-text="Must be at least 8 characters with letters and numbers.">Must be at least 8 characters with letters and numbers.</div>
                     </div>
                     
                     <div class="mb-4">
                         <label class="form-label text-white fw-semibold small mb-1.5" style="user-select: none;">Confirm Password <span class="text-danger">*</span></label>
-                        <input type="password" name="confirm" class="form-control dark-input" placeholder="Re-enter password" minlength="8" required>
+                        <div class="input-group">
+                            <input type="password" name="confirm_password" class="form-control dark-input" placeholder="Re-enter password" minlength="8" required
+                                   data-target-match="#create_admin_match">
+                            <button type="button" class="btn btn-outline-secondary border-secondary border-opacity-25 toggle-password-btn text-light" aria-label="Show password">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                        <div id="create_admin_match" class="mt-1"></div>
                     </div>
                     
                     <button type="submit" class="btn btn-primary fw-semibold w-100 py-2.5">

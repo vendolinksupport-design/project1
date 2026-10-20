@@ -50,7 +50,10 @@ $html = ob_get_clean();
 assert(strpos($html, 'Owner / Customer') !== false, "Missing 'Owner / Customer' header");
 assert(strpos($html, 'Email & Username') !== false, "Missing 'Email & Username' header");
 assert(strpos($html, 'Account Status') !== false, "Missing 'Account Status' header");
-assert(strpos($html, 'Machines &bull; Details') !== false, "Missing 'Machines • Details' header");
+assert(strpos($html, '<th style="width: 20%;" class="text-center">Machines</th>') !== false, "Missing centered 'Machines' header");
+assert(strpos($html, '<td class="text-center machine-cell">') !== false, "Missing centered machines td cell");
+assert(strpos($html, 'machine-count-badge') !== false, "Missing machine-count-badge element");
+assert(strpos($html, 'machine-drawer-btn') !== false, "Missing machine-drawer-btn element");
 
 // Check drawer elements
 assert(strpos($html, 'class="customer-row"') !== false, "Missing customer-row class");

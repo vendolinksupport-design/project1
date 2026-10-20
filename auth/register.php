@@ -165,7 +165,7 @@ require_once __DIR__ . '/../includes/header.php';
                     </label>
                     <div class="input-password-wrapper">
                         <input type="password" id="password" name="password" class="form-control auth-input"
-                               placeholder="Min. 8 characters" required minlength="8" autocomplete="new-password">
+                               placeholder="Min. 8 alphanumeric" required minlength="8" autocomplete="new-password">
                         <button type="button" class="password-toggle" aria-label="Toggle password">
                             <i class="bi bi-eye"></i>
                         </button>
@@ -286,7 +286,7 @@ require_once __DIR__ . '/../includes/header.php';
                             </ol>
                             <div class="mt-2 pt-1 border-top border-secondary border-opacity-25" style="font-size: 0.73rem;">
                                 <span class="text-warning fw-semibold"><i class="bi bi-phone me-1"></i>Still blocked?</span> In Android Phone Settings:
-                                <div class="text-slate-300 ms-3 mt-0.5">Settings ➔ Apps ➔ Brave (or Chrome) ➔ Permissions ➔ Camera ➔ <strong>Allow</strong></div>
+                                <div class="text-slate-300 ms-3 mt-0.5">Settings &rarr; Apps &rarr; Brave (or Chrome) &rarr; Permissions &rarr; Camera &rarr; <strong>Allow</strong></div>
                             </div>
                         </div>
 
@@ -512,19 +512,29 @@ window.extractActivationKey = extractActivationKey;
 
     function strength(p){
         if(!p) return {pct:0,label:'',color:'transparent'};
-        var s=0;
-        if(p.length>=8) s++;
-        if(p.length>=12) s++;
-        if(/[A-Z]/.test(p)) s++;
-        if(/[0-9]/.test(p)) s++;
-        if(/[^A-Za-z0-9]/.test(p)) s++;
+        var isLen = p.length >= 8;
+        var hasLetter = /[A-Za-z]/.test(p);
+        var hasNumber = /[0-9]/.test(p);
+
+        if (!isLen) {
+            return {pct:25, label:'<span class="text-danger small fw-medium"><i class="bi bi-x-circle me-1"></i>Must be at least 8 characters long</span>', color:'#ef4444'};
+        }
+        if (!hasLetter || !hasNumber) {
+            return {pct:50, label:'<span class="text-danger small fw-medium"><i class="bi bi-x-circle me-1"></i>Must contain both letters and numbers</span>', color:'#f59e0b'};
+        }
+
+        var s = 2;
+        if (p.length >= 10) s++;
+        if (/[A-Z]/.test(p) && /[a-z]/.test(p)) s++;
+        if (/[^A-Za-z0-9]/.test(p)) s++;
+
         var m=[
             {label:'',color:'transparent',pct:0},
             {label:'Weak',color:'#ef4444',pct:20},
             {label:'Fair',color:'#f97316',pct:40},
-            {label:'Moderate',color:'#f59e0b',pct:60},
-            {label:'Strong',color:'#22c55e',pct:80},
-            {label:'Very Strong',color:'#0ea5e9',pct:100}
+            {label:'<span class="text-success small fw-medium"><i class="bi bi-check-circle-fill me-1"></i>Good (Alphanumeric)</span>',color:'#22c55e',pct:75},
+            {label:'<span class="text-success small fw-medium"><i class="bi bi-check-circle-fill me-1"></i>Strong (Alphanumeric)</span>',color:'#10b981',pct:90},
+            {label:'<span class="text-info small fw-medium"><i class="bi bi-shield-check me-1"></i>Very Strong</span>',color:'#0ea5e9',pct:100}
         ];
         return m[Math.min(s,5)];
     }
@@ -534,13 +544,18 @@ window.extractActivationKey = extractActivationKey;
         var p  = pw.value;
         var cp = confirmPw.value;
         if (!cp) {
-            if (matchHint) matchHint.textContent = '';
+            if (matchHint) { matchHint.innerHTML = ''; matchHint.className = 'password-match-hint'; }
             return;
         }
         var match = p.length > 0 && p === cp;
         if (matchHint) {
-            matchHint.textContent = match ? '\u2713 Passwords match' : '\u2717 Passwords do not match';
-            matchHint.className   = 'password-match-hint ' + (match ? 'match-ok' : 'match-fail');
+            if (match) {
+                matchHint.innerHTML = '<span class="text-success small fw-medium"><i class="bi bi-check-circle-fill me-1"></i>Passwords match</span>';
+                matchHint.className   = 'password-match-hint match-ok';
+            } else {
+                matchHint.innerHTML = '<span class="text-danger small fw-medium"><i class="bi bi-x-circle-fill me-1"></i>Passwords do not match</span>';
+                matchHint.className   = 'password-match-hint match-fail';
+            }
         }
     }
 
@@ -548,7 +563,7 @@ window.extractActivationKey = extractActivationKey;
         pw.addEventListener('input', function(){
             var s = strength(this.value);
             if(fill){ fill.style.width=s.pct+'%'; fill.style.backgroundColor=s.color; }
-            if(text){ text.textContent=s.label; text.style.color=s.color; }
+            if(text){ text.innerHTML=s.label; text.style.color=s.color; }
             updateMatch();
         });
     }

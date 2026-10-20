@@ -14,7 +14,7 @@
 // ============================================================
 // Canonical Concept Constants
 // ============================================================
-define('TERM_OVERVIEW',               'Overview');
+define('TERM_OVERVIEW',               'Dashboard');
 define('TERM_MACHINES',               'Machines');
 define('TERM_CUSTOMERS',              'Customers');
 define('TERM_MACHINE_ACTIVATION',     'Machine Activation');
