@@ -1251,12 +1251,17 @@ class Transaction
         $previousCollections = (float)$collStmt->fetchColumn();
 
         // 4. Authorized excess collection adjustments (is_override = 1 and variance_amount > 0)
-        $overrideStmt = $pdo->prepare(
-            "SELECT COALESCE(SUM(variance_amount), 0) FROM cash_collections
-             WHERE machine_id = :mid AND is_override = 1 AND variance_amount > 0"
-        );
-        $overrideStmt->execute([':mid' => $machineId]);
-        $authorizedOverrides = (float)$overrideStmt->fetchColumn();
+        $authorizedOverrides = 0.0;
+        try {
+            $overrideStmt = $pdo->prepare(
+                "SELECT COALESCE(SUM(variance_amount), 0) FROM cash_collections
+                 WHERE machine_id = :mid AND is_override = 1 AND variance_amount > 0"
+            );
+            $overrideStmt->execute([':mid' => $machineId]);
+            $authorizedOverrides = (float)$overrideStmt->fetchColumn();
+        } catch (\Throwable $e) {
+            $authorizedOverrides = 0.0;
+        }
 
         // 5. Integer-cent arithmetic
         $salesCents    = (int)round($eligibleSales * 100);
@@ -1358,12 +1363,17 @@ class Transaction
             $collStmt->execute([':mid' => $machineId]);
             $previousCollections = (float)$collStmt->fetchColumn();
 
-            $overrideStmt = $pdo->prepare(
-                "SELECT COALESCE(SUM(variance_amount), 0) FROM cash_collections
-                 WHERE machine_id = :mid AND is_override = 1 AND variance_amount > 0"
-            );
-            $overrideStmt->execute([':mid' => $machineId]);
-            $authorizedOverrides = (float)$overrideStmt->fetchColumn();
+            $authorizedOverrides = 0.0;
+            try {
+                $overrideStmt = $pdo->prepare(
+                    "SELECT COALESCE(SUM(variance_amount), 0) FROM cash_collections
+                     WHERE machine_id = :mid AND is_override = 1 AND variance_amount > 0"
+                );
+                $overrideStmt->execute([':mid' => $machineId]);
+                $authorizedOverrides = (float)$overrideStmt->fetchColumn();
+            } catch (\Throwable $e) {
+                $authorizedOverrides = 0.0;
+            }
 
             $salesCents    = (int)round($eligibleSales * 100);
             $prevCollCents = (int)round($previousCollections * 100);

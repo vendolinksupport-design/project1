@@ -70,9 +70,11 @@
                     </button>
                 </div>
             </form>
+        </div>
+
     </div>
 
-</div>
+</div><!-- /#vendoAiWidgetContainer -->
 
 <!-- Session Inactivity Warning Modal -->
 <div class="modal fade" id="inactivityWarningModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="inactivityModalLabel" aria-hidden="true" style="z-index: 10050;">

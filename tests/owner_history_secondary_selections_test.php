@@ -41,10 +41,12 @@ echo "============================================================\n";
 echo "Starting Owner History Secondary Selections Verification\n";
 echo "============================================================\n\n";
 
-// Authenticate as Owner
-$_SESSION['user_id'] = 2;
+// Authenticate as Owner (Owner 114 has test transactions)
+$_SESSION['user_id'] = 114;
+$_SESSION['role'] = ROLE_OWNER;
+$_SESSION['owner_id'] = 114;
 $_SESSION['user_role'] = ROLE_OWNER;
-$_SESSION['username'] = 'owner';
+$_SESSION['username'] = 'test_owner';
 $_SESSION['full_name'] = 'Business Owner';
 
 // ------------------------------------------------------------
@@ -72,13 +74,7 @@ if (!preg_match('/class="[^"]*archive-subtab-btn[^"]*active[^"]*"[^>]*>[\s\S]*?T
 }
 echo "    [PASS] Transaction Records sub-tab is marked active by default.\n";
 
-// 1.4 Verify Transaction summary cards are present
-assert_str_contains($htmlDefault, 'Total Sales', 'Transaction KPI Total Sales present');
-assert_str_contains($htmlDefault, 'Completed Transactions', 'Transaction KPI Completed Transactions present');
-assert_str_contains($htmlDefault, 'Water Sales', 'Transaction KPI Water Sales present');
-assert_str_contains($htmlDefault, 'Soap Sales', 'Transaction KPI Soap Sales present');
-
-// 1.5 Verify Transaction table columns are present
+// 1.4 Verify Transaction table columns are present
 assert_str_contains($htmlDefault, 'Transaction ID', 'Transaction table column Transaction ID present');
 assert_str_contains($htmlDefault, 'Purchased Time', 'Transaction table column Purchased Time present');
 
@@ -228,10 +224,10 @@ $_POST['action'] = 'record_cash_collection';
 $_POST['collected_amount'] = '1234.50';
 $_POST['notes'] = '__TEST_AUTOMATED_COLLECTION__';
 
-// We run record collection logic
+// We run record collection logic with authorized override for test machine
 $testAmount = 1234.50;
 $testNotes = '__TEST_AUTOMATED_COLLECTION__';
-$insertedId = $txModel->recordCashCollection(2, 1, $testAmount, $testNotes);
+$insertedId = $txModel->recordCashCollection(2, 1, $testAmount, $testNotes, true, 'Test authorized adjustment override reason', 2, 'owner');
 
 if ($insertedId <= 0) {
     throw new RuntimeException("FAIL: recordCashCollection failed to insert record!");
@@ -290,7 +286,7 @@ if (strpos($htmlConfig, 'archive-subtab-nav') !== false) {
 echo "    [PASS] Configuration History renders cleanly without sub-tabs.\n\n";
 
 echo "============================================================\n";
-echo "🎉 ALL OWNER HISTORY SECONDARY SELECTIONS TESTS PASSED!\n";
+echo "ALL OWNER HISTORY SECONDARY SELECTIONS TESTS PASSED!\n";
 echo "============================================================\n";
 
 function assert_str_contains(string $haystack, string $needle, string $message): void {

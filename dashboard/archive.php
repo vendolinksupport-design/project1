@@ -1302,23 +1302,8 @@ if (!function_exists('build_archive_url')) {
             </div>
         </div>
 
-        <!-- Page Footer -->
-        <footer class="app-footer">
-            <span><?= APP_NAME ?> v<?= APP_VERSION ?> &copy; <?= date('Y') ?></span>
-            <span>Powered by VendoCore IoT Controller</span>
-        </footer>
-
-    </div><!-- /.main-content -->
-
-</div><!-- /.app-shell -->
-
-<!-- Bootstrap 5 JS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<!-- VendoLink JS -->
-<script src="<?= ASSETS_URL ?>/js/app.js"></script>
-
-<!-- Cash Collection Reconciliation Logic -->
-<script>
+        <!-- Cash Collection Reconciliation Logic -->
+        <script>
 document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('recordCashModal');
     if (!modal) return;
