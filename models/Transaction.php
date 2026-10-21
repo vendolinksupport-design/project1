@@ -1157,21 +1157,22 @@ class Transaction
             $params[':date_to'] = $filters['date_to'];
         }
 
-        // Reconciliation filter (Matched, Above, Below)
+        // Reconciliation filter (Matched, Above/Excess/Override, Below/Shortage)
         $recon = strtolower(trim($filters['reconciliation'] ?? $filters['status'] ?? 'all'));
         if ($recon === 'matched') {
             $conditions[] = "ABS(cc.variance_amount) < 0.001";
-        } elseif ($recon === 'above') {
-            $conditions[] = "cc.variance_amount > 0.001";
-        } elseif ($recon === 'below') {
+        } elseif ($recon === 'above' || $recon === 'excess' || $recon === 'override') {
+            $conditions[] = "(cc.variance_amount > 0.001 OR cc.reconciliation_status = 'override')";
+        } elseif ($recon === 'below' || $recon === 'shortage') {
             $conditions[] = "cc.variance_amount < -0.001";
         }
 
         if (!empty($filters['search'])) {
-            $conditions[] = "(cc.notes LIKE :search_cc1 OR u.full_name LIKE :search_cc2 OR m.name LIKE :search_cc3)";
+            $conditions[] = "(cc.notes LIKE :search_cc1 OR cc.override_reason LIKE :search_cc2 OR u.full_name LIKE :search_cc3 OR m.name LIKE :search_cc4)";
             $params[':search_cc1'] = '%' . $filters['search'] . '%';
             $params[':search_cc2'] = '%' . $filters['search'] . '%';
             $params[':search_cc3'] = '%' . $filters['search'] . '%';
+            $params[':search_cc4'] = '%' . $filters['search'] . '%';
         }
 
         $where = !empty($conditions) ? implode(" AND ", $conditions) : "1=1";
@@ -1188,44 +1189,309 @@ class Transaction
     }
 
     /**
-     * Record a physical cash collection from coin box.
+     * Calculate the expected uncollected cash balance for a machine.
+     *
+     * Expected Cash = Total Eligible Completed Sales
+     *               - Total Previous Cash Collections
+     *               + Total Previous Authorized Excess Overrides
+     *
+     * Uses integer cents arithmetic to avoid floating-point inaccuracy.
+     *
+     * @param int $machineId
+     * @param int|null $ownerId Optional owner scoping
+     * @return array
      */
-    public function recordCashCollection(int $userId, int $machineId, float $collectedAmount, ?string $notes = null): int
+    public function getExpectedCashBalance(int $machineId, ?int $ownerId = null): array
     {
-        $lastCollection = $this->db->query(
-            "SELECT collected_at FROM cash_collections WHERE machine_id = :mid ORDER BY collected_at DESC LIMIT 1",
-            [':mid' => $machineId]
-        )->fetchColumn();
+        $pdo = $this->db->getConnection();
 
-        if ($lastCollection) {
-            $systemSales = (float)$this->db->query(
-                "SELECT COALESCE(SUM(amount), 0) FROM service_transactions WHERE machine_id = :mid AND status = 'completed' AND created_at > :since",
-                [':mid' => $machineId, ':since' => $lastCollection]
-            )->fetchColumn();
-        } else {
-            $systemSales = (float)$this->db->query(
-                "SELECT COALESCE(SUM(amount), 0) FROM service_transactions WHERE machine_id = :mid AND status = 'completed'",
-                [':mid' => $machineId]
-            )->fetchColumn();
+        // 1. Verify machine exists and check ownership if ownerId provided
+        if ($ownerId !== null && $ownerId > 0) {
+            $checkStmt = $pdo->prepare(
+                "SELECT m.id, m.name, m.machine_code
+                 FROM machines m
+                 WHERE m.id = :mid
+                   AND (m.owner_id = :owner_id OR m.id IN (
+                       SELECT m2.id FROM machines m2
+                       JOIN product_keys pk ON (pk.hardware_serial = m2.machine_code OR pk.hardware_serial = m2.machine_key)
+                       WHERE pk.owner_id = :owner_id2
+                   ))
+                 LIMIT 1"
+            );
+            $checkStmt->execute([':mid' => $machineId, ':owner_id' => $ownerId, ':owner_id2' => $ownerId]);
+            $machineRow = $checkStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$machineRow) {
+                return [
+                    'success'              => false,
+                    'error'                => 'Machine not found or access denied.',
+                    'machine_id'           => $machineId,
+                    'expected_balance'     => 0.00,
+                    'eligible_sales'       => 0.00,
+                    'previous_collections' => 0.00,
+                    'authorized_overrides' => 0.00,
+                    'last_collected_at'    => null,
+                ];
+            }
         }
 
-        $variance = $collectedAmount - $systemSales;
-
-        $stmt = $this->db->getConnection()->prepare(
-            "INSERT INTO cash_collections (user_id, machine_id, collected_amount, system_sales_amount, variance_amount, notes)
-             VALUES (:uid, :mid, :c_amt, :s_amt, :var_amt, :notes)"
+        // 2. Total eligible completed sales (only status = 'completed' represents real cash)
+        $salesStmt = $pdo->prepare(
+            "SELECT COALESCE(SUM(amount), 0) FROM service_transactions
+             WHERE machine_id = :mid AND status = 'completed'"
         );
-        $stmt->execute([
-            ':uid'   => $userId,
-            ':mid'   => $machineId,
-            ':c_amt' => $collectedAmount,
-            ':s_amt' => $systemSales,
-            ':var_amt' => $variance,
-            ':notes' => $notes
-        ]);
+        $salesStmt->execute([':mid' => $machineId]);
+        $eligibleSales = (float)$salesStmt->fetchColumn();
 
-        $collId = (int)$this->db->getConnection()->lastInsertId();
+        // 3. Previous physical collections accounted for
+        $collStmt = $pdo->prepare(
+            "SELECT COALESCE(SUM(collected_amount), 0) FROM cash_collections
+             WHERE machine_id = :mid"
+        );
+        $collStmt->execute([':mid' => $machineId]);
+        $previousCollections = (float)$collStmt->fetchColumn();
 
-        return $collId;
+        // 4. Authorized excess collection adjustments (is_override = 1 and variance_amount > 0)
+        $overrideStmt = $pdo->prepare(
+            "SELECT COALESCE(SUM(variance_amount), 0) FROM cash_collections
+             WHERE machine_id = :mid AND is_override = 1 AND variance_amount > 0"
+        );
+        $overrideStmt->execute([':mid' => $machineId]);
+        $authorizedOverrides = (float)$overrideStmt->fetchColumn();
+
+        // 5. Integer-cent arithmetic
+        $salesCents    = (int)round($eligibleSales * 100);
+        $collCents     = (int)round($previousCollections * 100);
+        $overrideCents = (int)round($authorizedOverrides * 100);
+
+        $expectedCents = $salesCents - $collCents + $overrideCents;
+        if ($expectedCents < 0) {
+            $expectedCents = 0;
+        }
+        $expectedBalance = round($expectedCents / 100, 2);
+
+        // 6. Last collection timestamp
+        $lastStmt = $pdo->prepare(
+            "SELECT collected_at FROM cash_collections
+             WHERE machine_id = :mid ORDER BY collected_at DESC LIMIT 1"
+        );
+        $lastStmt->execute([':mid' => $machineId]);
+        $lastCollectedAt = $lastStmt->fetchColumn() ?: null;
+
+        return [
+            'success'              => true,
+            'machine_id'           => $machineId,
+            'expected_balance'     => $expectedBalance,
+            'eligible_sales'       => round($eligibleSales, 2),
+            'previous_collections' => round($previousCollections, 2),
+            'authorized_overrides' => round($authorizedOverrides, 2),
+            'last_collected_at'    => $lastCollectedAt,
+        ];
+    }
+
+    /**
+     * Record a physical cash collection from coin box with strict validation & reconciliation.
+     *
+     * Enforces:
+     * - Case A: Exact match (zero difference, status = 'matched')
+     * - Case B: Shortage (difference < 0, mandatory note/reason required, uncollected balance preserved)
+     * - Case C: Excess (difference > 0, strictly blocked by default unless authorized override with reason)
+     * - Case D: No available cash (expected = 0, blocked unless authorized override)
+     * - Case E: Invalid input (empty, zero, negative, malformed)
+     * - Concurrency: Row locking (FOR UPDATE) inside PDO transaction
+     *
+     * @param int $userId
+     * @param int $machineId
+     * @param float $collectedAmount
+     * @param string|null $notes
+     * @param bool $isOverride
+     * @param string|null $overrideReason
+     * @param int|null $overrideUserId
+     * @param string|null $userRole
+     * @return int Inserted cash collection ID
+     * @throws InvalidArgumentException
+     * @throws RuntimeException
+     */
+    public function recordCashCollection(
+        int $userId,
+        int $machineId,
+        float $collectedAmount,
+        ?string $notes = null,
+        bool $isOverride = false,
+        ?string $overrideReason = null,
+        ?int $overrideUserId = null,
+        ?string $userRole = null
+    ): int {
+        // Case E: Invalid input validation
+        if ($collectedAmount <= 0 || is_nan($collectedAmount) || is_infinite($collectedAmount)) {
+            throw new InvalidArgumentException("Please enter a valid positive cash collection amount.");
+        }
+
+        $enteredCents = (int)round($collectedAmount * 100);
+        if ($enteredCents <= 0) {
+            throw new InvalidArgumentException("Please enter a valid cash amount greater than zero.");
+        }
+
+        $pdo = $this->db->getConnection();
+        $pdo->beginTransaction();
+
+        try {
+            // Lock machine row to prevent concurrent race conditions
+            $lockStmt = $pdo->prepare("SELECT id, name FROM machines WHERE id = :mid FOR UPDATE");
+            $lockStmt->execute([':mid' => $machineId]);
+            $machineRow = $lockStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$machineRow) {
+                throw new RuntimeException("Target machine #{$machineId} not found.");
+            }
+
+            // Calculate live expected cash balance inside transaction
+            $salesStmt = $pdo->prepare(
+                "SELECT COALESCE(SUM(amount), 0) FROM service_transactions
+                 WHERE machine_id = :mid AND status = 'completed'"
+            );
+            $salesStmt->execute([':mid' => $machineId]);
+            $eligibleSales = (float)$salesStmt->fetchColumn();
+
+            $collStmt = $pdo->prepare(
+                "SELECT COALESCE(SUM(collected_amount), 0) FROM cash_collections
+                 WHERE machine_id = :mid"
+            );
+            $collStmt->execute([':mid' => $machineId]);
+            $previousCollections = (float)$collStmt->fetchColumn();
+
+            $overrideStmt = $pdo->prepare(
+                "SELECT COALESCE(SUM(variance_amount), 0) FROM cash_collections
+                 WHERE machine_id = :mid AND is_override = 1 AND variance_amount > 0"
+            );
+            $overrideStmt->execute([':mid' => $machineId]);
+            $authorizedOverrides = (float)$overrideStmt->fetchColumn();
+
+            $salesCents    = (int)round($eligibleSales * 100);
+            $prevCollCents = (int)round($previousCollections * 100);
+            $prevOverCents = (int)round($authorizedOverrides * 100);
+
+            $expectedCents = $salesCents - $prevCollCents + $prevOverCents;
+            if ($expectedCents < 0) {
+                $expectedCents = 0;
+            }
+
+            $expectedAmount = round($expectedCents / 100, 2);
+            $diffCents      = $enteredCents - $expectedCents;
+            $diffAmount     = round($diffCents / 100, 2);
+
+            $reconStatus        = 'matched';
+            $isOverrideFlag     = 0;
+            $cleanOverrideReason = null;
+            $cleanOverrideUserId = null;
+            $uncollectedBalance = 0.00;
+
+            // Resolve role for authorization check if needed
+            if ($userRole === null && $overrideUserId !== null) {
+                $uStmt = $pdo->prepare("SELECT role FROM users WHERE id = :uid");
+                $uStmt->execute([':uid' => $overrideUserId]);
+                $userRole = (string)$uStmt->fetchColumn();
+            } elseif ($userRole === null && $userId > 0) {
+                $uStmt = $pdo->prepare("SELECT role FROM users WHERE id = :uid");
+                $uStmt->execute([':uid' => $userId]);
+                $userRole = (string)$uStmt->fetchColumn();
+            }
+            $userRoleNormalized = strtolower(trim((string)$userRole));
+            $isAuthorizedRole   = in_array($userRoleNormalized, ['administrator', 'admin', 'owner'], true);
+
+            // Case D: Zero expected balance
+            if ($expectedCents === 0) {
+                if ($isOverride) {
+                    if (!$isAuthorizedRole) {
+                        throw new InvalidArgumentException("Permission denied. Only Owners and Administrators can authorize an override.");
+                    }
+                    if (empty(trim($overrideReason ?? '')) || strlen(trim($overrideReason)) < 5) {
+                        throw new InvalidArgumentException("A detailed explanation (at least 5 characters) is required when authorizing an override.");
+                    }
+                    $reconStatus         = 'override';
+                    $isOverrideFlag      = 1;
+                    $cleanOverrideReason = trim($overrideReason);
+                    $cleanOverrideUserId = $overrideUserId ?: $userId;
+                    $uncollectedBalance  = 0.00;
+                } else {
+                    throw new InvalidArgumentException("No eligible uncollected cash is available for this machine (Expected: ₱0.00). Cannot record collection without an authorized override.");
+                }
+            }
+            // Case A: Exact match
+            elseif ($diffCents === 0) {
+                $reconStatus        = 'matched';
+                $isOverrideFlag     = 0;
+                $uncollectedBalance = 0.00;
+            }
+            // Case B: Shortage
+            elseif ($diffCents < 0) {
+                $cleanNotes = trim($notes ?? '');
+                if (empty($cleanNotes)) {
+                    throw new InvalidArgumentException("A note or explanation is required when the collected cash (₱" . number_format($collectedAmount, 2) . ") is less than the expected balance of ₱" . number_format($expectedAmount, 2) . ".");
+                }
+                $reconStatus        = 'shortage';
+                $isOverrideFlag     = 0;
+                $uncollectedBalance = round(abs($diffCents) / 100, 2);
+            }
+            // Case C: Excess collection
+            elseif ($diffCents > 0) {
+                if (!$isOverride) {
+                    $excessAmount = round($diffCents / 100, 2);
+                    throw new InvalidArgumentException("Collected cash (₱" . number_format($collectedAmount, 2) . ") exceeds the expected machine balance of ₱" . number_format($expectedAmount, 2) . " by ₱" . number_format($excessAmount, 2) . ". Excess collections are blocked by default unless authorized with an override explanation.");
+                }
+
+                if (!$isAuthorizedRole) {
+                    throw new InvalidArgumentException("Permission denied. Only Owners and Administrators can authorize an excess collection override.");
+                }
+
+                if (empty(trim($overrideReason ?? '')) || strlen(trim($overrideReason)) < 5) {
+                    throw new InvalidArgumentException("A detailed explanation (at least 5 characters) is required when overriding an excess cash collection.");
+                }
+
+                $reconStatus         = 'override';
+                $isOverrideFlag      = 1;
+                $cleanOverrideReason = trim($overrideReason);
+                $cleanOverrideUserId = $overrideUserId ?: $userId;
+                $uncollectedBalance  = 0.00;
+            }
+
+            // Insert reconciliation record
+            $insertStmt = $pdo->prepare(
+                "INSERT INTO cash_collections (
+                    user_id, machine_id, expected_amount, collected_amount,
+                    system_sales_amount, variance_amount, reconciliation_status,
+                    is_override, override_reason, override_user_id,
+                    uncollected_balance, notes, collected_at, created_at
+                ) VALUES (
+                    :uid, :mid, :exp_amt, :c_amt,
+                    :s_amt, :var_amt, :recon_status,
+                    :is_override, :override_reason, :override_uid,
+                    :uncoll_bal, :notes, NOW(), NOW()
+                )"
+            );
+
+            $insertStmt->execute([
+                ':uid'             => $userId,
+                ':mid'             => $machineId,
+                ':exp_amt'         => $expectedAmount,
+                ':c_amt'           => $collectedAmount,
+                ':s_amt'           => $expectedAmount,
+                ':var_amt'         => $diffAmount,
+                ':recon_status'    => $reconStatus,
+                ':is_override'     => $isOverrideFlag,
+                ':override_reason' => $cleanOverrideReason,
+                ':override_uid'    => $cleanOverrideUserId,
+                ':uncoll_bal'      => $uncollectedBalance,
+                ':notes'           => $notes,
+            ]);
+
+            $collId = (int)$pdo->lastInsertId();
+            $pdo->commit();
+
+            return $collId;
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 }
