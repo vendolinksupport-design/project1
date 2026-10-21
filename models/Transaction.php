@@ -923,22 +923,21 @@ class Transaction
 
         // 4. Transaction Records block
         fputcsv($output, ['TRANSACTION RECORDS']);
+        fputcsv($output, [
+            'Transaction ID',
+            'Date & Time',
+            'Machine',
+            'Service',
+            'Amount',
+            'Purchased Time',
+            'Actual Time',
+            'Status',
+            'Reason',
+        ]);
 
         if (empty($rows)) {
             fputcsv($output, ['No transactions found.']);
         } else {
-            fputcsv($output, [
-                'Transaction ID',
-                'Date & Time',
-                'Machine',
-                'Service',
-                'Amount',
-                'Purchased Time',
-                'Actual Time',
-                'Status',
-                'Reason',
-            ]);
-
             foreach ($rows as $r) {
                 fputcsv($output, [
                     '#' . str_pad((string) $r['id'], 5, '0', STR_PAD_LEFT),
@@ -1213,7 +1212,7 @@ class Transaction
                  WHERE m.id = :mid
                    AND (m.owner_id = :owner_id OR m.id IN (
                        SELECT m2.id FROM machines m2
-                       JOIN product_keys pk ON (pk.hardware_serial = m2.machine_code OR pk.hardware_serial = m2.machine_key)
+                       JOIN product_keys pk ON (pk.machine_id = m2.id OR pk.hardware_serial = m2.machine_code OR pk.hardware_serial = m2.machine_key)
                        WHERE pk.owner_id = :owner_id2
                    ))
                  LIMIT 1"
@@ -1222,19 +1221,21 @@ class Transaction
             $machineRow = $checkStmt->fetch(PDO::FETCH_ASSOC);
             if (!$machineRow) {
                 return [
-                    'success'              => false,
-                    'error'                => 'Machine not found or access denied.',
-                    'machine_id'           => $machineId,
-                    'expected_balance'     => 0.00,
-                    'eligible_sales'       => 0.00,
-                    'previous_collections' => 0.00,
-                    'authorized_overrides' => 0.00,
-                    'last_collected_at'    => null,
+                    'success'                     => false,
+                    'error'                       => 'Machine not found or access denied.',
+                    'machine_id'                  => $machineId,
+                    'expected_balance'            => 0.00,
+                    'opening_balance'             => 0.00,
+                    'sales_since_last_collection' => 0.00,
+                    'eligible_sales'              => 0.00,
+                    'previous_collections'        => 0.00,
+                    'authorized_overrides'        => 0.00,
+                    'last_collected_at'           => null,
                 ];
             }
         }
 
-        // 2. Total eligible completed sales (only status = 'completed' represents real cash)
+        // 2. Total completed eligible sales for the machine (only completed transactions represent collected coins)
         $salesStmt = $pdo->prepare(
             "SELECT COALESCE(SUM(amount), 0) FROM service_transactions
              WHERE machine_id = :mid AND status = 'completed'"
@@ -1242,7 +1243,7 @@ class Transaction
         $salesStmt->execute([':mid' => $machineId]);
         $eligibleSales = (float)$salesStmt->fetchColumn();
 
-        // 3. Previous physical collections accounted for
+        // 3. Total previous collections recorded for the machine
         $collStmt = $pdo->prepare(
             "SELECT COALESCE(SUM(collected_amount), 0) FROM cash_collections
              WHERE machine_id = :mid"
@@ -1250,46 +1251,67 @@ class Transaction
         $collStmt->execute([':mid' => $machineId]);
         $previousCollections = (float)$collStmt->fetchColumn();
 
-        // 4. Authorized excess collection adjustments (is_override = 1 and variance_amount > 0)
-        $authorizedOverrides = 0.0;
-        try {
-            $overrideStmt = $pdo->prepare(
-                "SELECT COALESCE(SUM(variance_amount), 0) FROM cash_collections
-                 WHERE machine_id = :mid AND is_override = 1 AND variance_amount > 0"
-            );
-            $overrideStmt->execute([':mid' => $machineId]);
-            $authorizedOverrides = (float)$overrideStmt->fetchColumn();
-        } catch (\Throwable $e) {
-            $authorizedOverrides = 0.0;
-        }
+        // 4. Excess collections beyond expected sales (adjustments/overrides/float cleared)
+        $excessStmt = $pdo->prepare(
+            "SELECT COALESCE(SUM(
+                CASE 
+                    WHEN variance_amount > 0 THEN variance_amount 
+                    WHEN collected_amount > expected_amount THEN (collected_amount - expected_amount) 
+                    ELSE 0 
+                END
+             ), 0) FROM cash_collections
+             WHERE machine_id = :mid"
+        );
+        $excessStmt->execute([':mid' => $machineId]);
+        $excessCollections = (float)$excessStmt->fetchColumn();
 
-        // 5. Integer-cent arithmetic
-        $salesCents    = (int)round($eligibleSales * 100);
-        $collCents     = (int)round($previousCollections * 100);
-        $overrideCents = (int)round($authorizedOverrides * 100);
+        // 5. Integer-cent arithmetic: Expected = Eligible Sales - Previous Collections + Excess Adjustments
+        $salesCents  = (int)round($eligibleSales * 100);
+        $collCents   = (int)round($previousCollections * 100);
+        $excessCents = (int)round($excessCollections * 100);
 
-        $expectedCents = $salesCents - $collCents + $overrideCents;
+        $expectedCents = $salesCents - $collCents + $excessCents;
         if ($expectedCents < 0) {
             $expectedCents = 0;
         }
         $expectedBalance = round($expectedCents / 100, 2);
 
-        // 6. Last collection timestamp
+        // 6. Last collection timestamp and opening balance from previous collection
         $lastStmt = $pdo->prepare(
-            "SELECT collected_at FROM cash_collections
-             WHERE machine_id = :mid ORDER BY collected_at DESC LIMIT 1"
+            "SELECT id, collected_amount, expected_amount, uncollected_balance, collected_at
+             FROM cash_collections
+             WHERE machine_id = :mid
+             ORDER BY collected_at DESC, id DESC
+             LIMIT 1"
         );
         $lastStmt->execute([':mid' => $machineId]);
-        $lastCollectedAt = $lastStmt->fetchColumn() ?: null;
+        $lastColl = $lastStmt->fetch(PDO::FETCH_ASSOC);
+
+        $lastCollectedAt = $lastColl ? $lastColl['collected_at'] : null;
+        $openingBalance  = $lastColl ? (float)($lastColl['uncollected_balance'] ?? 0.00) : 0.00;
+
+        $salesSinceLast = 0.00;
+        if ($lastCollectedAt !== null) {
+            $recentStmt = $pdo->prepare(
+                "SELECT COALESCE(SUM(amount), 0) FROM service_transactions
+                 WHERE machine_id = :mid AND status = 'completed' AND COALESCE(completed_at, created_at) > :last_time"
+            );
+            $recentStmt->execute([':mid' => $machineId, ':last_time' => $lastCollectedAt]);
+            $salesSinceLast = (float)$recentStmt->fetchColumn();
+        } else {
+            $salesSinceLast = $eligibleSales;
+        }
 
         return [
-            'success'              => true,
-            'machine_id'           => $machineId,
-            'expected_balance'     => $expectedBalance,
-            'eligible_sales'       => round($eligibleSales, 2),
-            'previous_collections' => round($previousCollections, 2),
-            'authorized_overrides' => round($authorizedOverrides, 2),
-            'last_collected_at'    => $lastCollectedAt,
+            'success'                     => true,
+            'machine_id'                  => $machineId,
+            'expected_balance'            => $expectedBalance,
+            'opening_balance'             => round($openingBalance, 2),
+            'sales_since_last_collection' => round($salesSinceLast, 2),
+            'eligible_sales'              => round($eligibleSales, 2),
+            'previous_collections'        => round($previousCollections, 2),
+            'authorized_overrides'        => round($excessCollections, 2),
+            'last_collected_at'           => $lastCollectedAt,
         ];
     }
 
@@ -1363,23 +1385,24 @@ class Transaction
             $collStmt->execute([':mid' => $machineId]);
             $previousCollections = (float)$collStmt->fetchColumn();
 
-            $authorizedOverrides = 0.0;
-            try {
-                $overrideStmt = $pdo->prepare(
-                    "SELECT COALESCE(SUM(variance_amount), 0) FROM cash_collections
-                     WHERE machine_id = :mid AND is_override = 1 AND variance_amount > 0"
-                );
-                $overrideStmt->execute([':mid' => $machineId]);
-                $authorizedOverrides = (float)$overrideStmt->fetchColumn();
-            } catch (\Throwable $e) {
-                $authorizedOverrides = 0.0;
-            }
+            $excessStmt = $pdo->prepare(
+                "SELECT COALESCE(SUM(
+                    CASE 
+                        WHEN variance_amount > 0 THEN variance_amount 
+                        WHEN collected_amount > expected_amount THEN (collected_amount - expected_amount) 
+                        ELSE 0 
+                    END
+                 ), 0) FROM cash_collections
+                 WHERE machine_id = :mid"
+            );
+            $excessStmt->execute([':mid' => $machineId]);
+            $excessCollections = (float)$excessStmt->fetchColumn();
 
-            $salesCents    = (int)round($eligibleSales * 100);
-            $prevCollCents = (int)round($previousCollections * 100);
-            $prevOverCents = (int)round($authorizedOverrides * 100);
+            $salesCents  = (int)round($eligibleSales * 100);
+            $collCents   = (int)round($previousCollections * 100);
+            $excessCents = (int)round($excessCollections * 100);
 
-            $expectedCents = $salesCents - $prevCollCents + $prevOverCents;
+            $expectedCents = $salesCents - $collCents + $excessCents;
             if ($expectedCents < 0) {
                 $expectedCents = 0;
             }

@@ -453,9 +453,6 @@ function runtime_clock_label(int $seconds): string {
                                     <i class="bi bi-plug-fill text-info fs-5"></i>
                                     <h5 class="fw-bold mb-0 text-white">Machine Outlets</h5>
                                 </div>
-                                <div class="text-success small font-monospace d-flex align-items-center gap-1">
-                                    <i class="bi bi-shield-check"></i>Tank Sensors: <span id="floaterStatusText"><?= $machineType === 'carwash' ? 'Active' : 'Disabled' ?></span>
-                                </div>
                             </div>
 
                             <div class="row g-4">
@@ -469,6 +466,7 @@ function runtime_clock_label(int $seconds): string {
                                 $serviceIcon = $service['icon'] ?? ($outletNum === 1 ? 'water' : 'soap');
                                 $isRunning = (bool)($service['is_running'] ?? false);
                                 $maintenanceSummary = $maintenanceSummaries[$service['service_key']] ?? null;
+                                $sensorStatus = Machine::getOutletSensorStatus($machine, $service, $outletNum);
                             ?>
                                 <div class="col-12 col-lg-6">
                                     <div class="service-section-box p-3 p-md-4 rounded-3 h-100" style="background: rgba(15,23,42,0.85); border: 1px solid rgba(148,163,184,0.15); overflow: visible !important;" data-service-section="<?= $serviceKey ?>">
@@ -545,9 +543,14 @@ function runtime_clock_label(int $seconds): string {
 
                                                 <div>
                                                     <input type="text" name="services[<?= $serviceId ?>][name]" id="out<?= $outletNum ?>InputName" class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-25 fw-bold px-3 py-1.5 mb-1.5" style="min-width: 180px; max-width: 220px; font-size: 0.95rem;" value="<?= e($serviceTitle) ?>" title="Edit service display name">
-                                                    <span class="badge font-monospace" style="background: rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.15); border: 1px solid rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.35); color: <?= $outletNum === 1 ? '#22d3ee' : '#fbbf24' ?>; font-size: 0.72rem;">
-                                                        <i class="bi bi-plug-fill me-0.5"></i>Outlet <?= $outletNum ?>
-                                                    </span>
+                                                    <div class="d-flex align-items-center gap-1.5 flex-wrap">
+                                                        <span class="badge font-monospace" style="background: rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.15); border: 1px solid rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.35); color: <?= $outletNum === 1 ? '#22d3ee' : '#fbbf24' ?>; font-size: 0.72rem;">
+                                                            <i class="bi bi-plug-fill me-0.5"></i>Outlet <?= $outletNum ?>
+                                                        </span>
+                                                        <span id="out<?= $outletNum ?>SensorBadge" class="badge font-monospace <?= e($sensorStatus['badge_class']) ?>" style="background: <?= e($sensorStatus['bg']) ?>; border: 1px solid <?= e($sensorStatus['border']) ?>; color: <?= e($sensorStatus['color']) ?>; font-size: 0.72rem;" title="GPIO <?= $sensorStatus['gpio_pin'] ?> reservoir sensor status">
+                                                            <i class="bi <?= e($sensorStatus['icon']) ?> me-1"></i><?= $sensorStatus['status_label'] ?>
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
 
@@ -726,35 +729,67 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     };
 
+    function updateOutletSensorBadge(outletNum, iconKey) {
+        const badge = document.getElementById('out' + outletNum + 'SensorBadge');
+        if (!badge) return;
+        const nonTankIcons = ['tire_air', 'blower', 'speedometer2', 'wind'];
+        const isDry = nonTankIcons.includes(iconKey);
+        if (isDry) {
+            badge.style.background = 'rgba(100,116,139,0.15)';
+            badge.style.border = '1px solid rgba(100,116,139,0.25)';
+            badge.style.color = '#94a3b8';
+            badge.innerHTML = '<i class="bi bi-dash-circle me-1"></i>Disabled (Dry)';
+            badge.title = 'Dry service - tank sensor bypassed';
+        } else {
+            const isLow = (outletNum === 1) ? <?= !empty($machine['water_tank_low']) ? 'true' : 'false' ?> : <?= !empty($machine['soap_tank_low']) ? 'true' : 'false' ?>;
+            const isOnline = <?= ($machine['calculated_status'] ?? 'offline') === 'online' ? 'true' : 'false' ?>;
+            if (!isOnline) {
+                badge.style.background = 'rgba(148,163,184,0.15)';
+                badge.style.border = '1px solid rgba(148,163,184,0.3)';
+                badge.style.color = '#94a3b8';
+                badge.innerHTML = '<i class="bi bi-shield-slash me-1"></i>Disconnected (Offline)';
+                badge.title = 'Controller offline - awaiting heartbeat';
+            } else if (isLow) {
+                badge.style.background = 'rgba(239,68,68,0.15)';
+                badge.style.border = '1px solid rgba(239,68,68,0.35)';
+                badge.style.color = '#f87171';
+                badge.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i>Low Level (Refill)';
+                badge.title = 'Sensor indicates low reservoir level';
+            } else {
+                badge.style.background = 'rgba(16,185,129,0.15)';
+                badge.style.border = '1px solid rgba(16,185,129,0.35)';
+                badge.style.color = '#34d399';
+                badge.innerHTML = '<i class="bi bi-shield-check me-1"></i>Connected &bull; Normal Level';
+                badge.title = 'Sensor connected - adequate reservoir level';
+            }
+        }
+    }
+
     function updateTankSensorState() {
         const out1IconInput = document.getElementById('out1InputIcon');
         const out2IconInput = document.getElementById('out2InputIcon');
         const out1Icon = out1IconInput ? out1IconInput.value : '';
         const out2Icon = out2IconInput ? out2IconInput.value : '';
 
-        const nonTankIcons = ['tire_air', 'blower'];
+        const nonTankIcons = ['tire_air', 'blower', 'speedometer2', 'wind'];
         const isOut1NonTank = nonTankIcons.includes(out1Icon);
         const isOut2NonTank = nonTankIcons.includes(out2Icon);
 
-        const floaterStatusText = document.getElementById('floaterStatusText');
+        updateOutletSensorBadge(1, out1Icon);
+        updateOutletSensorBadge(2, out2Icon);
+
         const machineTemplateSelect = document.getElementById('machineTemplateSelect');
         const activeProfileBadge = document.getElementById('activeProfileBadge');
         const saveBtnLabel = document.getElementById('saveBtnPresetLabel');
 
-        // If BOTH outlets are Tire Air or Blower: automatically disable floater sensors and switch template to air_blower!
+        // If BOTH outlets are Tire Air or Blower: automatically switch template to air_blower!
         if (isOut1NonTank && isOut2NonTank) {
-            if (floaterStatusText) {
-                floaterStatusText.textContent = 'Disabled';
-            }
             if (machineTemplateSelect && machineTemplateSelect.value === 'carwash') {
                 machineTemplateSelect.value = 'air_blower';
                 if (activeProfileBadge) activeProfileBadge.textContent = 'Active: Tire Air & Blower';
                 if (saveBtnLabel) saveBtnLabel.textContent = 'Tire Air & Blower';
             }
         } else if (out1Icon === 'water' || out1Icon === 'soap' || out2Icon === 'water' || out2Icon === 'soap') {
-            if (floaterStatusText) {
-                floaterStatusText.textContent = 'Active';
-            }
             if (machineTemplateSelect && machineTemplateSelect.value === 'air_blower' && (out1Icon === 'water' && out2Icon === 'soap')) {
                 machineTemplateSelect.value = 'carwash';
                 if (activeProfileBadge) activeProfileBadge.textContent = 'Active: Carwash Vendo';
@@ -898,8 +933,6 @@ document.addEventListener('DOMContentLoaded', function () {
         const activeProfileBadge = document.getElementById('activeProfileBadge');
         if (activeProfileBadge) activeProfileBadge.textContent = 'Active: ' + preset.label;
 
-        const floaterStatusText = document.getElementById('floaterStatusText');
-        if (floaterStatusText) floaterStatusText.textContent = preset.floater;
 
         // Populate LCD lines
         preset.lines.forEach(function (text, i) {

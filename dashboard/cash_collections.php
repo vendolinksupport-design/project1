@@ -694,6 +694,8 @@ document.addEventListener('DOMContentLoaded', function () {
     let currentExpected = 0.00;
     let canOverride = false;
     let isFetchingBalance = false;
+    let activeFetchSeq = 0;
+    let hasFetchError = false;
 
     function getSelectedMachineId() {
         if (machineSelect) return parseInt(machineSelect.value, 10) || 0;
@@ -704,31 +706,62 @@ document.addEventListener('DOMContentLoaded', function () {
     function fetchBalance() {
         const mid = getSelectedMachineId();
         if (mid <= 0) return;
+        const seq = ++activeFetchSeq;
         isFetchingBalance = true;
-        statExpected.textContent = '...';
+        hasFetchError = false;
+        saveBtn.disabled = true;
+
+        statExpected.className = 'font-monospace fw-bold fs-6 text-info';
+        statExpected.innerHTML = '<span class="spinner-border spinner-border-sm text-info" role="status" style="width: 0.9rem; height: 0.9rem;"></span>';
 
         fetch('<?= BASE_URL ?>/api/cash_collection_balance.php?machine_id=' + mid)
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) {
+                    return res.json().catch(() => ({ success: false, error: 'Server returned HTTP ' + res.status })).then(d => {
+                        throw new Error(d.error || 'Server error ' + res.status);
+                    });
+                }
+                return res.json();
+            })
             .then(data => {
+                if (seq !== activeFetchSeq) return;
                 isFetchingBalance = false;
+
                 if (data.success) {
                     currentExpected = parseFloat(data.expected_balance) || 0;
                     statExpected.textContent = '₱' + currentExpected.toFixed(2);
+                    statExpected.className = 'font-monospace fw-bold fs-6 text-info';
                     canOverride = !!data.can_override;
+                    hasFetchError = false;
+                    evaluate();
                 } else {
-                    currentExpected = 0;
-                    statExpected.textContent = '₱0.00';
+                    throw new Error(data.error || 'Failed to retrieve machine balance.');
                 }
-                evaluate();
             })
-            .catch(() => {
+            .catch(err => {
+                if (seq !== activeFetchSeq) return;
                 isFetchingBalance = false;
-                statExpected.textContent = '₱' + currentExpected.toFixed(2);
-                evaluate();
+                hasFetchError = true;
+                currentExpected = 0.00;
+                statExpected.textContent = 'Error';
+                statExpected.className = 'font-monospace fw-bold fs-6 text-danger';
+
+                banner.className = 'alert alert-danger py-2 px-3 small mb-3 d-flex align-items-center gap-2 border-0';
+                banner.style.background = 'rgba(239, 68, 68, 0.15)';
+                banner.style.color = '#f87171';
+                bannerIcon.className = 'bi bi-exclamation-triangle-fill text-danger flex-shrink-0';
+                bannerText.textContent = err.message || 'Unable to fetch cash balance. Please try again.';
+
+                saveBtn.disabled = true;
             });
     }
 
     function evaluate() {
+        if (hasFetchError) {
+            saveBtn.disabled = true;
+            return;
+        }
+
         const enteredVal = parseFloat(cashInput.value);
         if (isNaN(enteredVal) || enteredVal <= 0) {
             statEntered.textContent = '₱0.00';
@@ -774,13 +807,13 @@ document.addEventListener('DOMContentLoaded', function () {
         else if (Math.abs(diff) < 0.001) {
             statDiff.textContent = '₱0.00';
             statDiff.className = 'font-monospace fw-bold fs-6 text-success';
-            statDiffSub.textContent = 'exact match';
+            statDiffSub.textContent = 'matched';
             statDiffSub.className = 'small text-success d-block';
             banner.className = 'alert alert-success py-2 px-3 small mb-3 d-flex align-items-center gap-2 border-0';
             banner.style.background = 'rgba(16, 185, 129, 0.15)';
             banner.style.color = '#34d399';
             bannerIcon.className = 'bi bi-check-circle-fill text-success flex-shrink-0';
-            bannerText.textContent = 'Exact match! The cash you entered matches the machine.';
+            bannerText.textContent = 'Count matches expected sales exactly. Ready to record.';
             overridePanel.classList.add('d-none');
             notesRequired.classList.add('d-none');
         }
@@ -788,13 +821,13 @@ document.addEventListener('DOMContentLoaded', function () {
         else if (diff < -0.001) {
             statDiff.textContent = '-₱' + absDiff;
             statDiff.className = 'font-monospace fw-bold fs-6 text-warning';
-            statDiffSub.textContent = 'short by ₱' + absDiff;
+            statDiffSub.textContent = 'shortage (-₱' + absDiff + ')';
             statDiffSub.className = 'small text-warning d-block';
             banner.className = 'alert alert-warning py-2 px-3 small mb-3 d-flex align-items-center gap-2 border-0';
             banner.style.background = 'rgba(245, 158, 11, 0.15)';
             banner.style.color = '#fbbf24';
             bannerIcon.className = 'bi bi-exclamation-triangle-fill text-warning flex-shrink-0';
-            bannerText.textContent = 'Short by ₱' + absDiff + '. Please write a quick reason below before saving.';
+            bannerText.textContent = 'Shortage of ₱' + absDiff + '. Please enter a note explaining uncollected coins.';
             overridePanel.classList.add('d-none');
             notesRequired.classList.remove('d-none');
         }
@@ -802,13 +835,13 @@ document.addEventListener('DOMContentLoaded', function () {
         else if (diff > 0.001) {
             statDiff.textContent = '+₱' + absDiff;
             statDiff.className = 'font-monospace fw-bold fs-6 text-danger';
-            statDiffSub.textContent = 'extra ₱' + absDiff;
+            statDiffSub.textContent = 'excess (+₱' + absDiff + ')';
             statDiffSub.className = 'small text-danger d-block';
             banner.className = 'alert alert-danger py-2 px-3 small mb-3 d-flex align-items-center gap-2 border-0';
             banner.style.background = 'rgba(239, 68, 68, 0.15)';
             banner.style.color = '#f87171';
             bannerIcon.className = 'bi bi-shield-x text-danger flex-shrink-0';
-            bannerText.textContent = 'Too much entered! This is ₱' + absDiff + ' more than the machine made. Please double-check.';
+            bannerText.textContent = 'Too much entered! This is ₱' + absDiff + ' more than the machine made. Requires authorized override.';
             notesRequired.classList.add('d-none');
 
             if (canOverride) {

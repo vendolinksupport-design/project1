@@ -28,14 +28,8 @@ $user         = current_user();
 
 // Define notification keys and defaults
 $notifDefaults = [
-    'inapp_notif_enabled'    => '1',
-    'email_notif_enabled'    => '1',
-    'notif_maint_reminders'  => '1',
-    'notif_machine_offline'  => '1',
-    'notif_machine_online'   => '1',
-    'notif_daily_sales'      => '1',
-    'notif_weekly_sales'     => '1',
-    'notif_security_notices' => '1',
+    'inapp_notif_enabled' => '1',
+    'email_notif_enabled' => '1',
 ];
 $notifKeys = array_keys($notifDefaults);
 
@@ -84,10 +78,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     }
 
     if ($action === 'save_notifications') {
-        $newSettings = [];
-        foreach ($notifKeys as $key) {
-            $newSettings[$key] = isset($_POST[$key]) ? '1' : '0';
-        }
+        $newSettings = [
+            'inapp_notif_enabled' => isset($_POST['inapp_notif_enabled']) ? '1' : '0',
+            'email_notif_enabled' => isset($_POST['email_notif_enabled']) ? '1' : '0',
+        ];
 
         $settingModel->saveMany($newSettings);
 
@@ -269,7 +263,7 @@ $currentPage = 'settings';
                     <!-- ====================================================
                          2. NOTIFICATION PREFERENCES SECTION
                          ==================================================== -->
-                    <form method="POST" action="<?= BASE_URL ?>/settings/index.php" id="notifForm" data-loading="true">
+                    <form method="POST" action="<?= BASE_URL ?>/settings/index.php" id="notifForm">
                         <?= csrf_field() ?>
                         <input type="hidden" name="action" value="save_notifications">
 
@@ -282,8 +276,8 @@ $currentPage = 'settings';
                                 Control how and when you receive real-time operational alerts, sales reports, and machine updates.
                             </p>
 
-                            <!-- Master Toggles -->
-                            <div class="settings-master-section mb-4">
+                            <!-- Notification Channels -->
+                            <div class="settings-master-section mb-0">
                                 <div class="row g-3">
                                     
                                     <!-- Web Notifications -->
@@ -302,7 +296,7 @@ $currentPage = 'settings';
                                                 <label class="switch" title="Toggle Web Notifications">
                                                     <input
                                                         type="checkbox"
-                                                        class="checkbox"
+                                                        class="checkbox auto-save-toggle"
                                                         id="inapp_notif_enabled"
                                                         name="inapp_notif_enabled"
                                                         role="switch"
@@ -331,7 +325,7 @@ $currentPage = 'settings';
                                                 <label class="switch" title="Toggle Email Notifications">
                                                     <input
                                                         type="checkbox"
-                                                        class="checkbox"
+                                                        class="checkbox auto-save-toggle"
                                                         id="email_notif_enabled"
                                                         name="email_notif_enabled"
                                                         role="switch"
@@ -346,166 +340,6 @@ $currentPage = 'settings';
 
                                 </div>
                             </div>
-
-                            <div class="vl-profile-section-divider text-white fw-bold">
-                                Email Notification Preferences
-                            </div>
-
-                            <!-- Individual Email Preferences List -->
-                            <div class="settings-preferences-list" id="emailPreferencesContainer">
-
-                                <!-- Maintenance Alerts -->
-                                <div class="settings-notif-row">
-                                    <div class="settings-notif-info">
-                                        <div class="settings-notif-label text-white fw-bold">
-                                            <i class="bi bi-tools me-2 text-warning"></i>Maintenance Alerts
-                                        </div>
-                                        <div class="settings-notif-desc text-slate-300">
-                                            Allow email alerts when vending unit maintenance tasks or cleaning schedules are due.
-                                        </div>
-                                    </div>
-                                    <label class="switch" title="Toggle Maintenance Alerts">
-                                        <input
-                                            type="checkbox"
-                                            class="checkbox email-sub-toggle"
-                                            name="notif_maint_reminders"
-                                            role="switch"
-                                            aria-label="Toggle Maintenance Alerts"
-                                            <?= $notifSettings['notif_maint_reminders'] === '1' ? 'checked' : '' ?>
-                                        >
-                                        <div class="slider"></div>
-                                    </label>
-                                </div>
-
-                                <!-- Machine Offline Alerts -->
-                                <div class="settings-notif-row">
-                                    <div class="settings-notif-info">
-                                        <div class="settings-notif-label text-white fw-bold">
-                                            <i class="bi bi-wifi-off me-2 text-danger"></i>Machine Offline Alerts
-                                        </div>
-                                        <div class="settings-notif-desc text-slate-300">
-                                            Receive instant email notifications if a vending unit loses connection or goes offline.
-                                        </div>
-                                    </div>
-                                    <label class="switch" title="Toggle Machine Offline Alerts">
-                                        <input
-                                            type="checkbox"
-                                            class="checkbox email-sub-toggle"
-                                            name="notif_machine_offline"
-                                            role="switch"
-                                            aria-label="Toggle Machine Offline Alerts"
-                                            <?= $notifSettings['notif_machine_offline'] === '1' ? 'checked' : '' ?>
-                                        >
-                                        <div class="slider"></div>
-                                    </label>
-                                </div>
-
-                                <!-- Machine Back Online Alerts -->
-                                <div class="settings-notif-row">
-                                    <div class="settings-notif-info">
-                                        <div class="settings-notif-label text-white fw-bold">
-                                            <i class="bi bi-wifi me-2 text-success"></i>Machine Back Online Alerts
-                                        </div>
-                                        <div class="settings-notif-desc text-slate-300">
-                                            Receive confirmation emails when a disconnected vending unit successfully reconnects.
-                                        </div>
-                                    </div>
-                                    <label class="switch" title="Toggle Machine Back Online Alerts">
-                                        <input
-                                            type="checkbox"
-                                            class="checkbox email-sub-toggle"
-                                            name="notif_machine_online"
-                                            role="switch"
-                                            aria-label="Toggle Machine Back Online Alerts"
-                                            <?= $notifSettings['notif_machine_online'] === '1' ? 'checked' : '' ?>
-                                        >
-                                        <div class="slider"></div>
-                                    </label>
-                                </div>
-
-                                <!-- Daily Sales Summary -->
-                                <div class="settings-notif-row">
-                                    <div class="settings-notif-info">
-                                        <div class="settings-notif-label text-white fw-bold">
-                                            <i class="bi bi-calendar-check me-2 text-info"></i>Daily Sales Summary
-                                        </div>
-                                        <div class="settings-notif-desc text-slate-300">
-                                            Receive an automated daily email breakdown of total sales revenue and transaction metrics.
-                                        </div>
-                                    </div>
-                                    <label class="switch" title="Toggle Daily Sales Summary">
-                                        <input
-                                            type="checkbox"
-                                            class="checkbox email-sub-toggle"
-                                            name="notif_daily_sales"
-                                            role="switch"
-                                            aria-label="Toggle Daily Sales Summary"
-                                            <?= $notifSettings['notif_daily_sales'] === '1' ? 'checked' : '' ?>
-                                        >
-                                        <div class="slider"></div>
-                                    </label>
-                                </div>
-
-                                <!-- Weekly Sales Summary -->
-                                <div class="settings-notif-row">
-                                    <div class="settings-notif-info">
-                                        <div class="settings-notif-label text-white fw-bold">
-                                            <i class="bi bi-graph-up-arrow me-2 text-primary"></i>Weekly Sales Summary
-                                        </div>
-                                        <div class="settings-notif-desc text-slate-300">
-                                            Receive a weekly audit summary highlighting revenue growth, machine usage, and audit trends.
-                                        </div>
-                                    </div>
-                                    <label class="switch" title="Toggle Weekly Sales Summary">
-                                        <input
-                                            type="checkbox"
-                                            class="checkbox email-sub-toggle"
-                                            name="notif_weekly_sales"
-                                            role="switch"
-                                            aria-label="Toggle Weekly Sales Summary"
-                                            <?= $notifSettings['notif_weekly_sales'] === '1' ? 'checked' : '' ?>
-                                        >
-                                        <div class="slider"></div>
-                                    </label>
-                                </div>
-
-                                <!-- Security & System Notices -->
-                                <div class="settings-notif-row border-0 pb-0">
-                                    <div class="settings-notif-info">
-                                        <div class="settings-notif-label text-white fw-bold">
-                                            <i class="bi bi-shield-exclamation me-2 text-warning"></i>Security &amp; System Notices
-                                        </div>
-                                        <div class="settings-notif-desc text-slate-300">
-                                            Receive critical security updates, password change logs, and system environment alerts.
-                                        </div>
-                                    </div>
-                                    <label class="switch" title="Toggle Security & System Notices">
-                                        <input
-                                            type="checkbox"
-                                            class="checkbox email-sub-toggle"
-                                            name="notif_security_notices"
-                                            role="switch"
-                                            aria-label="Toggle Security Notices"
-                                            <?= $notifSettings['notif_security_notices'] === '1' ? 'checked' : '' ?>
-                                        >
-                                        <div class="slider"></div>
-                                    </label>
-                                </div>
-
-                            </div>
-
-                            <!-- Save Notification Preferences Button -->
-                            <div class="mt-4 pt-3 border-top border-slate-700 text-end">
-                                <button type="submit" class="btn btn-primary px-4 py-2 fw-semibold">
-                                    <span class="btn-text">
-                                        <i class="bi bi-check2-circle me-1"></i><?= term('save_changes') ?>
-                                    </span>
-                                    <span class="btn-loading d-none">
-                                        <span class="spinner-border spinner-border-sm me-1"></span>Saving...
-                                    </span>
-                                </button>
-                            </div>
-
                         </div>
                     </form>
                 </div>
@@ -625,19 +459,19 @@ $currentPage = 'settings';
 <script>
 (function(){
     'use strict';
-    var emailMaster  = document.getElementById('email_notif_enabled');
-    var container    = document.getElementById('emailPreferencesContainer');
-
-    function syncEmailToggles() {
-        if (!emailMaster || !container) return;
-        var isEnabled = emailMaster.checked;
-        container.style.opacity       = isEnabled ? '1' : '0.45';
-        container.style.pointerEvents = isEnabled ? 'auto' : 'none';
-    }
-
-    if (emailMaster) {
-        emailMaster.addEventListener('change', syncEmailToggles);
-        syncEmailToggles();
+    // Auto-save notification switches on toggle
+    var notifForm = document.getElementById('notifForm');
+    if (notifForm) {
+        var autoToggles = notifForm.querySelectorAll('.auto-save-toggle');
+        autoToggles.forEach(function(toggle) {
+            toggle.addEventListener('change', function() {
+                if (typeof notifForm.requestSubmit === 'function') {
+                    notifForm.requestSubmit();
+                } else {
+                    notifForm.submit();
+                }
+            });
+        });
     }
 
     // Copy Email Action

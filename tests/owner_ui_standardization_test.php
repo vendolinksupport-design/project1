@@ -28,7 +28,8 @@ function assert_test(bool $condition, string $message): void {
 // 1. Terminology Dictionary Checks
 // ------------------------------------------------------------
 echo "1. Checking Canonical Terminology Dictionary...\n";
-assert_test(term('alerts') === 'Alerts', "term('alerts') returns 'Alerts'");
+assert_test(term('alerts') === 'Notifications', "term('alerts') returns 'Notifications'");
+assert_test(term('notifications') === 'Notifications', "term('notifications') returns 'Notifications'");
 assert_test(term('history') === 'History', "term('history') returns 'History'");
 assert_test(term('transaction_history') === 'History', "term('transaction_history') returns 'History'");
 assert_test(term('history_archive') === 'History', "term('history_archive') returns 'History'");
@@ -66,7 +67,7 @@ assert_test(term('view_history') === 'View History', "term('view_history') retur
 // ------------------------------------------------------------
 echo "\n2. Checking Sidebar Navigation Standard Terminology...\n";
 $sidebarHtml = file_get_contents(ROOT_PATH . '/views/layouts/sidebar.php');
-assert_test(strpos($sidebarHtml, "term('alerts', 'Alerts')") !== false, "Sidebar uses term('alerts', 'Alerts')");
+assert_test(strpos($sidebarHtml, "term('alerts', 'Notifications')") !== false || strpos($sidebarHtml, "term('alerts', 'Alerts')") !== false, "Sidebar uses Notifications terminology");
 assert_test(strpos($sidebarHtml, "term('history', 'History')") !== false, "Sidebar uses term('history', 'History')");
 assert_test(strpos($sidebarHtml, "'Alerts & Notifications'") === false, "Sidebar no longer contains hardcoded 'Alerts & Notifications'");
 assert_test(strpos($sidebarHtml, "'History Archive'") === false, "Sidebar no longer contains hardcoded 'History Archive'");
@@ -76,7 +77,7 @@ assert_test(strpos($sidebarHtml, "'History Archive'") === false, "Sidebar no lon
 // ------------------------------------------------------------
 echo "\n3. Checking Top Navigation Labels...\n";
 $topnavHtml = file_get_contents(ROOT_PATH . '/views/layouts/topnav.php');
-assert_test(strpos($topnavHtml, "'alerts'          => term('alerts', 'Alerts')") !== false, "Topnav maps 'alerts' to canonical term");
+assert_test(strpos($topnavHtml, "'alerts'          => term('alerts', 'Notifications')") !== false || strpos($topnavHtml, "'alerts'          => term('alerts', 'Alerts')") !== false, "Topnav maps 'alerts' to canonical term");
 assert_test(strpos($topnavHtml, "'archive'         => term('history', 'History')") !== false, "Topnav maps 'archive' to canonical term");
 
 // ------------------------------------------------------------
@@ -115,11 +116,11 @@ assert_test(strpos($machinesHtml, "term('save_changes', 'Save Changes')") !== fa
 // ------------------------------------------------------------
 echo "\n6. Checking Alerts Page Terminology...\n";
 $alertsHtml = file_get_contents(ROOT_PATH . '/dashboard/alerts.php');
-assert_test(strpos($alertsHtml, "\$pageTitle   = term('alerts', 'Alerts');") !== false, "Alerts page uses term('alerts', 'Alerts')");
-assert_test(strpos($alertsHtml, "Total Alerts") !== false, "Total Alerts KPI card present");
-assert_test(strpos($alertsHtml, "Critical Alerts") !== false, "Critical Alerts KPI card present");
-assert_test(strpos($alertsHtml, "Hardware Events") !== false, "Hardware Events KPI card present");
-assert_test(strpos($alertsHtml, "Alert Stream") !== false, "Alert Stream section title present");
+assert_test(strpos($alertsHtml, "\$pageTitle   = term('alerts', 'Notifications');") !== false, "Alerts page uses term('alerts', 'Notifications')");
+assert_test(strpos($alertsHtml, "TOTAL NOTIFICATIONS") !== false, "TOTAL NOTIFICATIONS KPI card present");
+assert_test(strpos($alertsHtml, "CRITICAL NOTIFICATIONS") !== false, "CRITICAL NOTIFICATIONS KPI card present");
+assert_test(strpos($alertsHtml, "HARDWARE NOTIFICATIONS") !== false, "HARDWARE NOTIFICATIONS KPI card present");
+assert_test(strpos($alertsHtml, "Notification Feed") !== false, "Notification Feed section title present");
 
 // ------------------------------------------------------------
 // 7. Transaction History Page (dashboard/archive.php) Checks

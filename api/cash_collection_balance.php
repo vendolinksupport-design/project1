@@ -53,16 +53,18 @@ try {
     }
 
     echo json_encode([
-        'success'              => true,
-        'machine_id'           => $machineId,
-        'expected_balance'     => $data['expected_balance'],
-        'formatted_expected'   => '₱' . number_format($data['expected_balance'], 2),
-        'eligible_sales'       => $data['eligible_sales'],
-        'previous_collections' => $data['previous_collections'],
-        'authorized_overrides' => $data['authorized_overrides'],
-        'last_collected_at'    => $data['last_collected_at'],
-        'can_override'         => $canOverride,
-        'user_role'            => $userRole,
+        'success'                     => true,
+        'machine_id'                  => $machineId,
+        'expected_balance'            => $data['expected_balance'],
+        'formatted_expected'          => '₱' . number_format($data['expected_balance'], 2),
+        'opening_balance'             => $data['opening_balance'] ?? 0.00,
+        'sales_since_last_collection' => $data['sales_since_last_collection'] ?? $data['eligible_sales'] ?? 0.00,
+        'eligible_sales'              => $data['eligible_sales'] ?? 0.00,
+        'previous_collections'        => $data['previous_collections'] ?? 0.00,
+        'authorized_overrides'        => $data['authorized_overrides'] ?? 0.00,
+        'last_collected_at'           => $data['last_collected_at'],
+        'can_override'                => $canOverride,
+        'user_role'                   => $userRole,
     ]);
 } catch (\Throwable $e) {
     http_response_code(500);

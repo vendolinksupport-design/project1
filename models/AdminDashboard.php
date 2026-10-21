@@ -30,10 +30,13 @@ class AdminDashboard
         $activeCustomers   = (int)$this->db->query("SELECT COUNT(*) FROM users WHERE role = 'owner' AND status = 'active'")->fetchColumn();
         $inactiveCustomers = $totalCustomers - $activeCustomers;
 
+        $timeout           = defined('HEARTBEAT_TIMEOUT_SECONDS') ? HEARTBEAT_TIMEOUT_SECONDS : 60;
+        $threshold         = date('Y-m-d H:i:s', time() - $timeout);
+
         $totalMachines     = (int)$this->db->query("SELECT COUNT(*) FROM machines")->fetchColumn();
-        $onlineMachines    = (int)$this->db->query("SELECT COUNT(*) FROM machines WHERE status = 'online'")->fetchColumn();
-        $offlineMachines   = (int)$this->db->query("SELECT COUNT(*) FROM machines WHERE status = 'offline'")->fetchColumn();
-        $unknownMachines   = (int)$this->db->query("SELECT COUNT(*) FROM machines WHERE status NOT IN ('online', 'offline')")->fetchColumn();
+        $onlineMachines    = (int)$this->db->query("SELECT COUNT(*) FROM machines WHERE last_seen IS NOT NULL AND last_seen >= ?", [$threshold])->fetchColumn();
+        $offlineMachines   = $totalMachines - $onlineMachines;
+        $unknownMachines   = 0;
 
         $openSupport       = (int)$this->db->query("SELECT COUNT(*) FROM support_conversations WHERE status IN ('open', 'waiting_support', 'waiting_customer')")->fetchColumn();
         $waitingSupport    = (int)$this->db->query("SELECT COUNT(*) FROM support_conversations WHERE status = 'waiting_support'")->fetchColumn();
@@ -366,6 +369,48 @@ class AdminDashboard
         // If filtering results in empty, fallback to non-filtered so the stream is never empty
         if (empty($results) && $filterAuthNoise) {
             return $this->getRecentActivity($limit, false);
+        }
+
+        return $results;
+    }
+
+    /**
+     * Get audit feed of administrator activity, filtering out routine customer operations and client noise.
+     */
+    public function getAdminActivity(int $limit = 10): array
+    {
+        $adminActions = [
+            'SYSTEM_RESET',
+            'ADMIN_ACTION',
+            'ADMIN_CREATED',
+            'OTA_DEPLOYMENT',
+            'FIRMWARE_UPLOAD',
+            'MACHINE_PROVISION',
+            'LICENSE_GENERATE',
+            'RESET_FAILED',
+        ];
+        $inClause = "'" . implode("','", $adminActions) . "'";
+
+        $results = $this->db->query(
+            "SELECT al.*, u.full_name, u.username, u.role
+             FROM activity_logs al
+             LEFT JOIN users u ON al.user_id = u.id
+             WHERE (u.role = 'administrator' AND al.action NOT IN ('DEV_AUTO_LOGIN', 'LOGOUT'))
+                OR al.action IN ({$inClause})
+             ORDER BY al.created_at DESC
+             LIMIT {$limit}"
+        )->fetchAll();
+
+        // If filtering leaves it empty, fallback to including admin session events so the stream is not completely empty
+        if (empty($results)) {
+            $results = $this->db->query(
+                "SELECT al.*, u.full_name, u.username, u.role
+                 FROM activity_logs al
+                 LEFT JOIN users u ON al.user_id = u.id
+                 WHERE u.role = 'administrator'
+                 ORDER BY al.created_at DESC
+                 LIMIT {$limit}"
+            )->fetchAll();
         }
 
         return $results;

@@ -380,4 +380,91 @@ class Archive
             'total_pages' => $totalPages,
         ];
     }
+
+    /**
+     * Get unified audit feed combining Maintenance History and Configuration History.
+     *
+     * @param array $filters
+     * @param int $page
+     * @param int $perPage
+     * @param int|null $ownerId
+     * @param string|null $viewerRole
+     * @return array
+     */
+    public function getAllHistory(
+        array $filters = [],
+        int $page = 1,
+        int $perPage = 15,
+        ?int $ownerId = null,
+        ?string $viewerRole = null
+    ): array {
+        $perPage = max(1, min(100, $perPage));
+        $page = max(1, $page);
+
+        // Fetch maintenance and configuration records matching filter criteria
+        $maintResult = $this->getMaintenanceHistory($filters, 1, 200, $ownerId);
+        $configResult = $this->getConfigurationHistory($filters, 1, 200, $ownerId, $viewerRole);
+
+        $unified = [];
+
+        foreach ($maintResult['items'] as $m) {
+            $unified[] = [
+                'type'             => 'maintenance',
+                'type_label'       => 'Maintenance',
+                'badge_class'      => 'bg-info bg-opacity-10 text-info border border-info border-opacity-25',
+                'badge_icon'       => 'bi-wrench',
+                'title'            => $m['maintenance_name'] ?? 'Maintenance Task',
+                'subtitle'         => ucfirst(e($m['reminder_type'] ?? 'general')) . ' Task',
+                'machine_name'     => $m['machine_name'] ?: 'Machine 01',
+                'service_name'     => $m['service_name'] ?? '',
+                'details'          => !empty($m['notes']) ? $m['notes'] : ('Runtime: ' . Transaction::formatDuration((int)($m['runtime_at_completion'] ?? 0))),
+                'actor_name'       => $m['completed_by_name'] ?? 'Technician',
+                'timestamp'        => $m['completed_at'] ?? $m['created_at'],
+                'raw_id'           => (int)$m['id'],
+            ];
+        }
+
+        foreach ($configResult['items'] as $c) {
+            $unified[] = [
+                'type'             => 'configuration',
+                'type_label'       => 'Config',
+                'badge_class'      => 'bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25',
+                'badge_icon'       => 'bi-sliders',
+                'title'            => ($c['service_name'] ?? 'Service') . ' Config Updated',
+                'subtitle'         => 'Pricing & Pulse Rates',
+                'machine_name'     => $c['machine_name'] ?: 'Machine 01',
+                'service_name'     => $c['service_name'] ?? '',
+                'details'          => ($c['previous_label'] ?? '') . ' &rarr; ' . ($c['new_label'] ?? ''),
+                'actor_name'       => $c['changed_by_name'] ?? 'Owner',
+                'timestamp'        => $c['created_at'],
+                'raw_id'           => (int)$c['id'],
+            ];
+        }
+
+        // Sort unified audit feed chronologically descending
+        usort($unified, function ($a, $b) {
+            $tA = strtotime($a['timestamp'] ?? '');
+            $tB = strtotime($b['timestamp'] ?? '');
+            if ($tA === $tB) {
+                return $b['raw_id'] <=> $a['raw_id'];
+            }
+            return $tB <=> $tA;
+        });
+
+        $totalItems = count($unified);
+        $totalPages = max(1, (int) ceil($totalItems / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $offset = ($page - 1) * $perPage;
+        $items = array_slice($unified, $offset, $perPage);
+
+        return [
+            'items'       => $items,
+            'total_items' => $totalItems,
+            'page'        => $page,
+            'per_page'    => $perPage,
+            'total_pages' => $totalPages,
+        ];
+    }
 }

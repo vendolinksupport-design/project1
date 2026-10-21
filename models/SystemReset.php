@@ -214,6 +214,31 @@ class SystemReset
             // Commit transaction
             $this->pdo->commit();
 
+            // Reset AUTO_INCREMENT counters to 1 for clean demonstration deployments
+            $tablesToReset = [
+                'machines',
+                'services',
+                'product_keys',
+                'license_keys',
+                'service_transactions',
+                'cash_collections',
+                'configuration_history',
+                'maintenance_history',
+                'maintenance_items',
+                'notifications',
+                'activity_logs',
+                'support_messages',
+                'support_conversations',
+                'ota_deployments',
+            ];
+            foreach ($tablesToReset as $tbl) {
+                try {
+                    $this->pdo->exec("ALTER TABLE `{$tbl}` AUTO_INCREMENT = 1");
+                } catch (Throwable $t) {
+                    // Ignore if table does not support AUTO_INCREMENT reset
+                }
+            }
+
             // Log first activity log in the fresh clean system
             $stmtLog = $this->pdo->prepare(
                 "INSERT INTO `activity_logs` (user_id, action, description, created_at)

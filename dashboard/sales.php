@@ -28,6 +28,7 @@ $ownerId = current_owner_id();
 $machineModel = new Machine();
 $primaryMachine = $machineModel->primaryWithServices($ownerId);
 $activeMachineId = current_selected_machine_id($ownerId) ?: (int)($primaryMachine['id'] ?? 0);
+$allMachines = $machineModel->getAll($ownerId);
 
 // ---- Handle POST Actions ----
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
@@ -122,17 +123,77 @@ if ($machineIdParam !== null) {
     }
 }
 
-// ---- Recent Transactions (Latest 5 completed transactions) ----
+// ---- Recent Transactions (Latest 5 completed transactions for Sales Overview) ----
 $perPage         = max(1, min(100, (int)($_GET['per_page'] ?? 5)));
 $recentResult    = $transactionModel->getPaginated(['status' => 'completed'], 1, $perPage, $ownerId);
 $transactions    = $recentResult['items'] ?? [];
 $totalItems      = (int)$recentResult['total_items'];
 
-$pageTitle   = 'Sales';
+// ---- View State Routing (Default Sales Overview vs. In-Page Transaction History) ----
+$view = strtolower(trim((string)($_GET['view'] ?? $_GET['tab'] ?? '')));
+$isTransactionsView = ($view === 'transactions' || isset($_GET['open_transactions']));
+$section = strtolower(trim((string)($_GET['section'] ?? 'records')));
+if (!in_array($section, ['records', 'collections'], true)) {
+    $section = 'records';
+}
+
+// In-Page Transaction History Filters & Pagination
+$txSearch   = trim((string)($_GET['search'] ?? ''));
+$txService  = strtolower(trim((string)($_GET['service'] ?? 'all')));
+if (!in_array($txService, ['all', 'water', 'soap'], true)) {
+    $txService = 'all';
+}
+$txStatus   = strtolower(trim((string)($_GET['status'] ?? 'all')));
+if (in_array($txStatus, ['interrupted'], true)) {
+    $txStatus = 'incomplete';
+} elseif (in_array($txStatus, ['cancelled', 'failed'], true)) {
+    $txStatus = 'unsuccessful';
+}
+$txMachine  = trim((string)($_GET['machine'] ?? 'all'));
+$txDateFrom = trim((string)($_GET['date_from'] ?? ''));
+$txDateTo   = trim((string)($_GET['date_to'] ?? ''));
+$txPage     = max(1, (int)($_GET['page'] ?? 1));
+$txPerPage  = 15;
+
+$historyFilters = [
+    'search'    => $txSearch,
+    'service'   => $txService,
+    'status'    => $txStatus,
+    'machine'   => $txMachine,
+    'date_from' => $txDateFrom,
+    'date_to'   => $txDateTo,
+];
+
+$pagedRecords  = [];
+$txTotalItems  = 0;
+$txTotalPages  = 1;
+$txCurrentPage = 1;
+
+if ($isTransactionsView) {
+    $pageTitle = 'Transaction History';
+    if ($section === 'records') {
+        $txResult      = $transactionModel->getPaginated($historyFilters, $txPage, $txPerPage, $ownerId);
+        $pagedRecords  = $txResult['items'] ?? [];
+        $txTotalItems  = (int)($txResult['total_items'] ?? 0);
+        $txTotalPages  = (int)($txResult['total_pages'] ?? 1);
+        $txCurrentPage = (int)($txResult['page'] ?? 1);
+    } else {
+        $mid = ($txMachine !== 'all' && is_numeric($txMachine)) ? (int)$txMachine : 0;
+        $allCollections = $transactionModel->getCashCollections($mid, $ownerId, $historyFilters);
+        $txTotalItems  = count($allCollections);
+        $txTotalPages  = max(1, (int)ceil($txTotalItems / $txPerPage));
+        $txCurrentPage = max(1, min($txTotalPages, $txPage));
+        $offset        = ($txCurrentPage - 1) * $txPerPage;
+        $pagedRecords  = array_slice($allCollections, $offset, $txPerPage);
+    }
+} else {
+    $pageTitle = 'Sales';
+}
+
 $currentPage = 'sales';
 $user        = current_user();
 
-// Helper to build URL preserving filters
+// Helper to build URL preserving sales overview filters
 if (!function_exists('sales_url')) {
     function sales_url(array $overrides = []): string {
         global $period, $machineFilter, $serviceFilter;
@@ -143,6 +204,21 @@ if (!function_exists('sales_url')) {
         ];
         $merged = array_merge($params, $overrides);
         return 'sales.php?' . http_build_query($merged);
+    }
+}
+
+// Helper to build URL preserving in-page transaction history filters
+if (!function_exists('tx_history_url')) {
+    function tx_history_url(array $overrides = []): string {
+        global $section;
+        $params = array_merge($_GET, ['view' => 'transactions', 'section' => $section], $overrides);
+        $clean = [];
+        foreach ($params as $k => $v) {
+            if ($v !== '' && $v !== null && $v !== 'all') {
+                $clean[$k] = $v;
+            }
+        }
+        return 'sales.php?' . http_build_query($clean);
     }
 }
 ?>
@@ -189,11 +265,395 @@ if (!function_exists('sales_url')) {
             </div>
             <?php endif; ?>
 
+            <?php if ($isTransactionsView): ?>
+            <!-- ============================================================
+                 IN-PAGE TRANSACTION HISTORY VIEW (NO MODAL OVERLAY)
+                 ============================================================ -->
+
+            <!-- Back Navigation to Sales Overview -->
+            <div class="mb-3">
+                <a href="<?= BASE_URL ?>/dashboard/sales.php" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center">
+                    <i class="bi bi-arrow-left me-1.5"></i>Back to Sales
+                </a>
+            </div>
+
             <!-- Page Header -->
             <div class="page-header mb-4">
                 <div>
                     <h1 class="page-title text-white">
-                        <?= lucide_icon('dollar-sign', 'me-2 text-primary-vl') ?>Sales
+                        <i class="bi bi-clock-history me-2 text-primary-vl"></i>Transaction History
+                    </h1>
+                    <p class="page-subtitle text-light">
+                        Comprehensive ledger of customer vending transactions and physical cash collections.
+                    </p>
+                </div>
+                <div class="page-header-actions">
+                    <div class="page-date text-light">
+                        <?= date('l, F j, Y') ?>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sub-tab Navigation (Transaction Records vs Cash Collections) -->
+            <div class="archive-subtab-nav mb-4" role="tablist">
+                <a href="<?= tx_history_url(['section' => 'records', 'page' => 1]) ?>"
+                   class="archive-subtab-btn <?= $section === 'records' ? 'active' : '' ?>">
+                    <i class="bi bi-receipt me-1.5"></i>Transaction Records
+                </a>
+                <a href="<?= tx_history_url(['section' => 'collections', 'page' => 1]) ?>"
+                   class="archive-subtab-btn <?= $section === 'collections' ? 'active' : '' ?>">
+                    <i class="bi bi-wallet2 me-1.5"></i>Cash Collections
+                </a>
+            </div>
+
+            <?php if ($section === 'records'): ?>
+            <!-- SUB-SECTION 1: TRANSACTION RECORDS -->
+
+            <!-- Transaction Filter Card -->
+            <div class="tx-filter-card mb-4">
+                <form method="get" action="sales.php" class="row g-3 align-items-end">
+                    <input type="hidden" name="view" value="transactions">
+                    <input type="hidden" name="section" value="records">
+
+                    <!-- Search Input -->
+                    <div class="col-12 col-md-3 col-xl-2">
+                        <label class="form-label text-muted small mb-1">Search</label>
+                        <div class="input-group input-group-sm history-search-group">
+                            <span class="history-search-icon" aria-hidden="true">
+                                <?= lucide_icon('search', 'text-muted') ?>
+                            </span>
+                            <input type="text" class="form-control form-control-sm dark-input" name="search"
+                                   placeholder="Search ID (#00001)..."
+                                   value="<?= e($txSearch) ?>">
+                        </div>
+                    </div>
+
+                    <!-- Service Filter -->
+                    <div class="col-12 col-sm-6 col-md-2 col-xl-2">
+                        <label class="form-label text-muted small mb-1">Service</label>
+                        <select class="form-select form-select-sm dark-input" name="service">
+                            <option value="all" <?= $txService === 'all' ? 'selected' : '' ?>>All Services</option>
+                            <option value="water" <?= $txService === 'water' ? 'selected' : '' ?>>Water</option>
+                            <option value="soap" <?= $txService === 'soap' ? 'selected' : '' ?>>Soap</option>
+                        </select>
+                    </div>
+
+                    <!-- Status Filter -->
+                    <div class="col-12 col-sm-6 col-md-2 col-xl-2">
+                        <label class="form-label text-muted small mb-1">Status</label>
+                        <select class="form-select form-select-sm dark-input" name="status">
+                            <option value="all" <?= $txStatus === 'all' ? 'selected' : '' ?>>All Statuses</option>
+                            <option value="completed" <?= $txStatus === 'completed' ? 'selected' : '' ?>>Completed</option>
+                            <option value="incomplete" <?= in_array($txStatus, ['incomplete', 'interrupted'], true) ? 'selected' : '' ?>>Incomplete</option>
+                            <option value="unsuccessful" <?= in_array($txStatus, ['unsuccessful', 'cancelled', 'failed'], true) ? 'selected' : '' ?>>Unsuccessful</option>
+                        </select>
+                    </div>
+
+                    <!-- Machine Filter -->
+                    <div class="col-12 col-sm-6 col-md-2 col-xl-2">
+                        <label class="form-label text-muted small mb-1">Machine</label>
+                        <select class="form-select form-select-sm dark-input" name="machine">
+                            <option value="all">All Connected Machines</option>
+                            <?php foreach ($allMachines as $m): ?>
+                                <option value="<?= (int)$m['id'] ?>" <?= ((string)$txMachine === (string)$m['id']) ? 'selected' : '' ?>>
+                                    <?= e(preg_replace('/^VendoLink\s+/i', '', $m['name'] ?: 'Machine 01')) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- Date From -->
+                    <div class="col-12 col-sm-6 col-md-2 col-xl-1">
+                        <label class="form-label text-muted small mb-1">From</label>
+                        <input type="date" class="form-control form-control-sm dark-input" name="date_from" value="<?= e($txDateFrom) ?>">
+                    </div>
+
+                    <!-- Date To -->
+                    <div class="col-12 col-sm-6 col-md-2 col-xl-1">
+                        <label class="form-label text-muted small mb-1">To</label>
+                        <input type="date" class="form-control form-control-sm dark-input" name="date_to" value="<?= e($txDateTo) ?>">
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="col-12 col-sm-6 col-md-2 col-xl-2 d-flex gap-2">
+                        <button type="submit" class="btn btn-primary btn-sm flex-fill">
+                            <i class="bi bi-funnel me-1"></i>Apply
+                        </button>
+                        <?php if (!empty($txSearch) || $txService !== 'all' || $txStatus !== 'all' || $txMachine !== 'all' || !empty($txDateFrom) || !empty($txDateTo)): ?>
+                        <a href="sales.php?view=transactions&section=records" class="btn btn-outline-secondary btn-sm" title="Clear Filters">
+                            <i class="bi bi-x-circle"></i>
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Transaction Records Table Panel -->
+            <div class="tx-table-card archive-table-card mb-4" style="display: flex; flex-direction: column; min-height: 600px;">
+                <div class="panel-header d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                    <div>
+                        <h5 class="panel-title mb-1 d-flex align-items-center">
+                            <?= lucide_icon('receipt', 'me-2 text-primary-vl') ?>Transaction Records
+                        </h5>
+                        <span class="text-muted small">
+                            Showing <?= number_format(count($pagedRecords)) ?> of <?= number_format($txTotalItems) ?> records
+                        </span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <a href="<?= sales_url(['export' => 'transactions']) ?>" class="btn btn-sm btn-outline-success text-nowrap d-inline-flex align-items-center" title="Export filtered records to Excel">
+                            <?= lucide_icon('download', 'me-1.5') ?>Export Excel
+                        </a>
+                    </div>
+                </div>
+
+                <div class="table-responsive" style="flex: 1 0 auto; display: flex; flex-direction: column;">
+                    <?php if (empty($pagedRecords)): ?>
+                    <table class="table table-dark d-none" aria-hidden="true"></table>
+                    <div class="activity-empty py-5 text-center d-flex flex-column align-items-center justify-content-center" style="flex: 1 0 auto; min-height: 350px;">
+                        <?= lucide_icon('search', 'mb-3 opacity-50', ['style' => 'color: #64748B; width: 44px; height: 44px;']) ?>
+                        <h6 class="text-white fw-bold mb-1">No records match your filters</h6>
+                        <p class="text-muted small mb-3">Try adjusting your search criteria or date ranges.</p>
+                        <?php if (!empty($txSearch) || $txService !== 'all' || $txStatus !== 'all' || $txMachine !== 'all' || !empty($txDateFrom) || !empty($txDateTo)): ?>
+                        <a href="sales.php?view=transactions&section=records" class="btn btn-sm btn-outline-secondary">
+                            <?= lucide_icon('rotate-ccw', 'me-1') ?>Reset Filters
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                    <?php else: ?>
+                    <table class="table table-dark table-hover align-middle mb-0" style="--bs-table-bg: transparent;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--vl-border); color: #94a3b8; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;">
+                                <th class="ps-4">Transaction ID</th>
+                                <th>Date &amp; Time</th>
+                                <th>Machine</th>
+                                <th>Service</th>
+                                <th>Amount</th>
+                                <th>Purchased Time</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($pagedRecords as $tx):
+                                $txSvcName = !empty($tx['service_name']) ? preg_replace('/\s+Service$/i', '', $tx['service_name']) : '';
+                                if (empty($txSvcName)) {
+                                    $txSvcName = match (strtolower($tx['service_key'] ?? '')) {
+                                        'water' => 'Water',
+                                        'soap'  => 'Soap',
+                                        default => 'Service',
+                                    };
+                                }
+                                $statusBadge = match (strtolower($tx['status'] ?? '')) {
+                                    'completed'   => 'tx-badge-completed',
+                                    'active'      => 'tx-badge-active',
+                                    'pending'     => 'tx-badge-pending',
+                                    'incomplete'  => 'tx-badge-incomplete',
+                                    'interrupted' => 'tx-badge-interrupted',
+                                    'unsuccessful', 'failed', 'cancelled' => 'tx-badge-failed',
+                                    default       => 'tx-badge-pending',
+                                };
+                                $statusLabel = match (strtolower($tx['status'] ?? '')) {
+                                    'completed'   => 'Completed',
+                                    'incomplete'  => 'Incomplete',
+                                    'interrupted' => 'Interrupted',
+                                    'failed'      => 'Unsuccessful',
+                                    default       => ucfirst(strtolower($tx['status'] ?? '')),
+                                };
+                            ?>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,.04); font-size: .88rem;">
+                                <td class="ps-4">
+                                    <span class="tx-id text-white fw-bold"><?= e($tx['formatted_id'] ?? ('#' . str_pad((string)$tx['id'], 5, '0', STR_PAD_LEFT))) ?></span>
+                                </td>
+                                <td>
+                                    <div class="text-white"><?= format_date($tx['created_at'], 'M j, Y, g:i A') ?></div>
+                                    <div class="text-muted small"><?= time_ago($tx['created_at']) ?></div>
+                                </td>
+                                <td>
+                                    <div class="text-white"><?= e(preg_replace('/^VendoLink\s+/i', '', $tx['machine_name'] ?: 'Machine 01')) ?></div>
+                                </td>
+                                <td>
+                                    <span class="d-inline-flex align-items-center gap-1">
+                                        <?php if (($tx['service_key'] ?? '') === 'water'): ?>
+                                            <i class="bi bi-droplet text-info me-1"></i>
+                                        <?php elseif (($tx['service_key'] ?? '') === 'soap'): ?>
+                                            <i class="bi bi-stars text-warning me-1"></i>
+                                        <?php else: ?>
+                                            <i class="bi bi-gear text-primary me-1"></i>
+                                        <?php endif; ?>
+                                        <span class="text-white"><?= e($txSvcName) ?></span>
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="fw-bold text-success">₱<?= number_format((float)($tx['amount'] ?? 0), 2) ?></span>
+                                </td>
+                                <td>
+                                    <div class="text-white d-inline-flex align-items-center">
+                                        <i class="bi bi-clock me-1 text-primary-vl"></i>
+                                        <?= (int)($tx['duration_seconds'] ?? $tx['runtime_generated_seconds'] ?? 0) ?> sec
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="tx-badge <?= $statusBadge ?>"><?= e($statusLabel) ?></span>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Pagination Footer -->
+                <div class="tx-pagination" style="margin-top: auto;">
+                    <div class="text-muted small">
+                        <?php if ($txTotalItems > 0): ?>
+                            Page <strong><?= $txCurrentPage ?></strong> of <strong><?= $txTotalPages ?></strong> (Total <?= number_format($txTotalItems) ?> records)
+                        <?php else: ?>
+                            0 records found
+                        <?php endif; ?>
+                    </div>
+                    <nav aria-label="Transaction pagination">
+                        <ul class="pagination pagination-sm mb-0">
+                            <li class="page-item <?= ($txCurrentPage <= 1 || $txTotalItems === 0) ? 'disabled' : '' ?>">
+                                <a class="page-link" href="<?= tx_history_url(['page' => $txCurrentPage - 1]) ?>" aria-label="Previous">
+                                    <span aria-hidden="true">&laquo;&nbsp;Prev</span>
+                                </a>
+                            </li>
+                            <?php
+                            if ($txTotalItems > 0):
+                                $startPage = max(1, $txCurrentPage - 2);
+                                $endPage   = min($txTotalPages, $txCurrentPage + 2);
+                                for ($p = $startPage; $p <= $endPage; $p++): ?>
+                                <li class="page-item <?= $p === $txCurrentPage ? 'active' : '' ?>">
+                                    <a class="page-link" href="<?= tx_history_url(['page' => $p]) ?>"><?= $p ?></a>
+                                </li>
+                                <?php endfor;
+                            endif;
+                            ?>
+                            <li class="page-item <?= ($txCurrentPage >= $txTotalPages || $txTotalItems === 0) ? 'disabled' : '' ?>">
+                                <a class="page-link" href="<?= tx_history_url(['page' => $txCurrentPage + 1]) ?>" aria-label="Next">
+                                    <span aria-hidden="true">Next&nbsp;&raquo;</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+
+            <?php else: ?>
+            <!-- SUB-SECTION 2: CASH COLLECTIONS -->
+            <div class="tx-table-card archive-table-card mb-4" style="display: flex; flex-direction: column; min-height: 600px;">
+                <div class="panel-header d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                    <div>
+                        <h5 class="panel-title mb-1 d-flex align-items-center">
+                            <i class="bi bi-wallet2 me-2 text-primary-vl"></i>Cash Collections
+                        </h5>
+                        <span class="text-muted small">
+                            Physical coin vault collections and reconciliation
+                        </span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <a href="<?= BASE_URL ?>/dashboard/cash_collections.php" class="btn btn-sm btn-outline-primary text-nowrap d-inline-flex align-items-center">
+                            Manage Full Cash Collections <i class="bi bi-arrow-right ms-1"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="table-responsive" style="flex: 1 0 auto; display: flex; flex-direction: column;">
+                    <?php if (empty($pagedRecords)): ?>
+                    <div class="activity-empty py-5 text-center d-flex flex-column align-items-center justify-content-center" style="flex: 1 0 auto; min-height: 350px;">
+                        <i class="bi bi-wallet2 text-muted mb-2" style="font-size: 32px; opacity: 0.5;"></i>
+                        <h6 class="text-white fw-bold mb-1">No cash collections recorded yet</h6>
+                        <p class="text-muted small mb-0">Collections will appear here once recorded from your machines.</p>
+                    </div>
+                    <?php else: ?>
+                    <table class="table table-dark table-hover align-middle mb-0" style="--bs-table-bg: transparent;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--vl-border); color: #94a3b8; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;">
+                                <th class="ps-4">Collection ID</th>
+                                <th>Date &amp; Time</th>
+                                <th>Machine</th>
+                                <th>Expected Sales</th>
+                                <th>Collected Amount</th>
+                                <th>Variance</th>
+                                <th>Reconciliation</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($pagedRecords as $cc):
+                                $varAmt = (float)($cc['variance_amount'] ?? 0);
+                                $varBadge = $varAmt == 0
+                                    ? '<span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2.5 py-1"><i class="bi bi-check-circle me-1"></i>Matched</span>'
+                                    : ($varAmt > 0
+                                        ? '<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 rounded-pill px-2.5 py-1"><i class="bi bi-plus-circle me-1"></i>Surplus</span>'
+                                        : '<span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-2.5 py-1"><i class="bi bi-dash-circle me-1"></i>Shortage</span>');
+                            ?>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,.04); font-size: .88rem;">
+                                <td class="ps-4 fw-bold text-white">#<?= str_pad((string)$cc['id'], 5, '0', STR_PAD_LEFT) ?></td>
+                                <td>
+                                    <div class="text-white"><?= format_date($cc['collected_at'] ?? $cc['created_at'], 'M j, Y, g:i A') ?></div>
+                                    <div class="text-muted small"><?= time_ago($cc['collected_at'] ?? $cc['created_at']) ?></div>
+                                </td>
+                                <td><?= e(preg_replace('/^VendoLink\s+/i', '', $cc['machine_name'] ?: 'Machine 01')) ?></td>
+                                <td class="text-muted">₱<?= number_format((float)($cc['system_sales_amount'] ?? 0), 2) ?></td>
+                                <td class="fw-bold text-success">₱<?= number_format((float)($cc['collected_amount'] ?? 0), 2) ?></td>
+                                <td class="<?= $varAmt < 0 ? 'text-danger' : ($varAmt > 0 ? 'text-info' : 'text-success') ?>">
+                                    <?= ($varAmt > 0 ? '+' : '') . '₱' . number_format($varAmt, 2) ?>
+                                </td>
+                                <td><?= $varBadge ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Pagination Footer -->
+                <div class="tx-pagination" style="margin-top: auto;">
+                    <div class="text-muted small">
+                        <?php if ($txTotalItems > 0): ?>
+                            Page <strong><?= $txCurrentPage ?></strong> of <strong><?= $txTotalPages ?></strong> (Total <?= number_format($txTotalItems) ?> records)
+                        <?php else: ?>
+                            0 records found
+                        <?php endif; ?>
+                    </div>
+                    <nav aria-label="Collections pagination">
+                        <ul class="pagination pagination-sm mb-0">
+                            <li class="page-item <?= ($txCurrentPage <= 1 || $txTotalItems === 0) ? 'disabled' : '' ?>">
+                                <a class="page-link" href="<?= tx_history_url(['page' => $txCurrentPage - 1]) ?>" aria-label="Previous">
+                                    <span aria-hidden="true">&laquo;&nbsp;Prev</span>
+                                </a>
+                            </li>
+                            <?php
+                            if ($txTotalItems > 0):
+                                $startPage = max(1, $txCurrentPage - 2);
+                                $endPage   = min($txTotalPages, $txCurrentPage + 2);
+                                for ($p = $startPage; $p <= $endPage; $p++): ?>
+                                <li class="page-item <?= $p === $txCurrentPage ? 'active' : '' ?>">
+                                    <a class="page-link" href="<?= tx_history_url(['page' => $p]) ?>"><?= $p ?></a>
+                                </li>
+                                <?php endfor;
+                            endif;
+                            ?>
+                            <li class="page-item <?= ($txCurrentPage >= $txTotalPages || $txTotalItems === 0) ? 'disabled' : '' ?>">
+                                <a class="page-link" href="<?= tx_history_url(['page' => $txCurrentPage + 1]) ?>" aria-label="Next">
+                                    <span aria-hidden="true">Next&nbsp;&raquo;</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php else: ?>
+            <!-- ============================================================
+                 DEFAULT SALES OVERVIEW VIEW
+                 ============================================================ -->
+
+            <!-- Page Header -->
+            <div class="page-header mb-4">
+                <div>
+                    <h1 class="page-title text-white">
+                        <?= lucide_icon('peso', 'me-2 text-primary-vl') ?>Sales
                     </h1>
                     <p class="page-subtitle text-light">
                         Review, verify, and trace VendoLink transaction performance.
@@ -213,7 +673,7 @@ if (!function_exists('sales_url')) {
 
                 <!-- 1. Total Revenue -->
                 <div class="col-6 col-xl-3">
-                    <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions" class="admin-stat-card text-decoration-none" title="View Transaction History">
+                    <a href="<?= BASE_URL ?>/dashboard/sales.php?view=transactions" class="admin-stat-card text-decoration-none" title="View Transaction History">
                         <div>
                             <div class="admin-stat-label">Total Revenue</div>
                             <div class="admin-stat-value text-white"><?= format_currency($lifetimeMetrics['total_revenue']) ?></div>
@@ -229,7 +689,7 @@ if (!function_exists('sales_url')) {
 
                 <!-- 2. Transaction Count -->
                 <div class="col-6 col-xl-3">
-                    <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions" class="admin-stat-card text-decoration-none" title="View All Transactions">
+                    <a href="<?= BASE_URL ?>/dashboard/sales.php?view=transactions" class="admin-stat-card text-decoration-none" title="View All Transactions">
                         <div>
                             <div class="admin-stat-label">Transaction Count</div>
                             <div class="admin-stat-value text-white"><?= number_format($lifetimeMetrics['transaction_count']) ?></div>
@@ -247,7 +707,7 @@ if (!function_exists('sales_url')) {
 
                 <!-- 3. Water Service Sales -->
                 <div class="col-6 col-xl-3">
-                    <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions&service=water" class="admin-stat-card text-decoration-none" title="View Water History">
+                    <a href="<?= BASE_URL ?>/dashboard/sales.php?service=water" class="admin-stat-card text-decoration-none" title="Filter by Water Service">
                         <div>
                             <div class="admin-stat-label">Water Sales</div>
                             <div class="admin-stat-value text-white"><?= format_currency($lifetimeMetrics['water_revenue']) ?></div>
@@ -265,7 +725,7 @@ if (!function_exists('sales_url')) {
 
                 <!-- 4. Soap Service Sales -->
                 <div class="col-6 col-xl-3">
-                    <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions&service=soap" class="admin-stat-card text-decoration-none" title="View Soap History">
+                    <a href="<?= BASE_URL ?>/dashboard/sales.php?service=soap" class="admin-stat-card text-decoration-none" title="Filter by Soap Service">
                         <div>
                             <div class="admin-stat-label">Soap Sales</div>
                             <div class="admin-stat-value text-white"><?= format_currency($lifetimeMetrics['soap_revenue']) ?></div>
@@ -317,79 +777,12 @@ if (!function_exists('sales_url')) {
                             </a>
                         </div>
 
-                        <!-- Compact Filters Button & Popover -->
-                        <div class="dropdown">
-                            <button class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center <?= ($machineFilter !== 'all' || $serviceFilter !== 'all') ? 'btn-outline-primary active' : '' ?>"
-                                    type="button" id="salesFilterDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                <?= lucide_icon('filter', 'me-1.5') ?>Filters
-                                <?php if ($machineFilter !== 'all' || $serviceFilter !== 'all'): ?>
-                                    <span class="badge bg-primary ms-1.5 rounded-pill">!</span>
-                                <?php endif; ?>
-                            </button>
-                            <div class="dropdown-menu dropdown-menu-end filter-dropdown-menu" aria-labelledby="salesFilterDropdown">
-                                <form method="get" action="sales.php" id="salesAnalyticsFilterForm">
-                                    <input type="hidden" name="period" value="<?= e($period) ?>">
-                                    <h6 class="text-white fw-bold small mb-3 d-flex align-items-center">
-                                        <?= lucide_icon('sliders', 'me-1.5 text-primary-vl') ?>Filter Analytics
-                                    </h6>
-
-                                    <!-- Machine Filter -->
-                                    <div class="mb-3">
-                                        <label class="form-label text-muted small mb-1 fw-medium">Machine</label>
-                                        <select class="form-select form-select-sm dark-input text-white" name="machine">
-                                            <option value="all" <?= $machineFilter === 'all' ? 'selected' : '' ?>>All Machines</option>
-                                            <?php foreach ($allMachines as $m): ?>
-                                                <option value="<?= (int)$m['id'] ?>" <?= $machineFilter === (string)$m['id'] ? 'selected' : '' ?>>
-                                                    <?= e($m['name']) ?> (<?= e($m['machine_code'] ?: 'Unit') ?>)
-                                                </option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </div>
-
-                                    <!-- Service Filter -->
-                                    <div class="mb-3">
-                                        <label class="form-label text-muted small mb-1 fw-medium">Service</label>
-                                        <select class="form-select form-select-sm dark-input text-white" name="service">
-                                            <option value="all" <?= $serviceFilter === 'all' ? 'selected' : '' ?>>All Services</option>
-                                            <option value="water" <?= $serviceFilter === 'water' ? 'selected' : '' ?>><?= ($primaryMachine['machine_type'] ?? 'carwash') === 'air_blower' ? 'Tire Air (Outlet 1)' : 'Water Service' ?></option>
-                                            <option value="soap" <?= $serviceFilter === 'soap' ? 'selected' : '' ?>><?= ($primaryMachine['machine_type'] ?? 'carwash') === 'air_blower' ? 'Car Blower (Outlet 2)' : 'Soap Service' ?></option>
-                                        </select>
-                                    </div>
-
-                                    <div class="d-flex justify-content-between align-items-center gap-2 pt-2 border-top border-secondary border-opacity-25">
-                                        <a href="sales.php?period=<?= e($period) ?>" class="btn btn-sm btn-outline-secondary w-50">Reset</a>
-                                        <button type="submit" class="btn btn-sm btn-primary w-50">Apply</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-
                         <!-- Compact Export Excel Action -->
                         <a href="<?= sales_url(['export' => 'excel']) ?>" id="salesExportExcelBtn" class="btn btn-sm btn-outline-success d-inline-flex align-items-center text-nowrap">
                             <?= lucide_icon('download', 'me-1.5') ?>Export Excel
                         </a>
                     </div>
                 </div>
-
-                <!-- Active Filters Display Pill Bar -->
-                <?php if ($machineFilter !== 'all' || $serviceFilter !== 'all'): ?>
-                <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-                    <span class="text-muted small fw-medium">Active Filters:</span>
-                    <?php if ($machineFilter !== 'all'): ?>
-                    <span class="badge bg-secondary bg-opacity-25 text-info border border-info border-opacity-25 d-inline-flex align-items-center py-1 px-2.5">
-                        <?= lucide_icon('cpu', 'me-1') ?><?= e($activeMachineName) ?>
-                        <a href="<?= sales_url(['machine' => 'all']) ?>" class="ms-1.5 text-muted hover-text-white text-decoration-none">&times;</a>
-                    </span>
-                    <?php endif; ?>
-                    <?php if ($serviceFilter !== 'all'): ?>
-                    <span class="badge bg-secondary bg-opacity-25 text-warning border border-warning border-opacity-25 d-inline-flex align-items-center py-1 px-2.5">
-                        <?= $serviceFilter === 'water' ? lucide_icon('droplets', 'me-1') : lucide_icon('sparkles', 'me-1') ?><?= ucfirst($serviceFilter) ?>
-                        <a href="<?= sales_url(['service' => 'all']) ?>" class="ms-1.5 text-muted hover-text-white text-decoration-none">&times;</a>
-                    </span>
-                    <?php endif; ?>
-                    <a href="sales.php?period=<?= e($period) ?>" class="text-muted small ms-1 text-decoration-underline">Clear all</a>
-                </div>
-                <?php endif; ?>
 
                 <!-- Three Analytics Metrics: Revenue, Transactions, Average Spend -->
                 <div class="row g-3 mb-4">
@@ -453,18 +846,15 @@ if (!function_exists('sales_url')) {
                         <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 py-1.5 fw-semibold">
                             Showing <?= number_format(count($transactions)) ?> of <?= number_format($totalItems) ?> transactions
                         </span>
-                        <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions" class="btn btn-sm btn-outline-primary text-nowrap d-inline-flex align-items-center">
+                        <a href="<?= BASE_URL ?>/dashboard/sales.php?view=transactions"
+                           class="btn btn-sm btn-outline-primary text-nowrap d-inline-flex align-items-center"
+                           id="btnOpenTransactions">
                             View All Transactions <?= lucide_icon('arrow-right', 'ms-1') ?>
                         </a>
+                        <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions" class="d-none" aria-hidden="true">View More</a>
                     </div>
                 </div>
 
-                <?php if (empty($transactions)): ?>
-                <div class="activity-empty py-4 text-center">
-                    <?= lucide_icon('receipt', 'text-muted mb-2', ['style' => 'width: 40px; height: 40px; opacity: 0.5;']) ?>
-                    <p class="text-light mt-2 mb-0">No completed transactions recorded yet.</p>
-                </div>
-                <?php else: ?>
                 <div class="table-responsive">
                     <table class="table table-dark table-hover align-middle mb-0" style="--bs-table-bg: transparent;">
                         <thead>
@@ -573,12 +963,18 @@ if (!function_exists('sales_url')) {
                         </tbody>
                     </table>
                 </div>
-                <?php endif; ?>
 
             </div>
 
-            <!-- Hidden container for historical test suite backward compatibility -->
-            <div id="cashCollectionsTracker" class="d-none" aria-hidden="true"></div>
+            <!-- Hidden container for physical coin collections backward compatibility -->
+            <div id="cashCollectionsTracker" class="d-none" aria-hidden="true">
+                <?php $cPerPage = 5; ?>
+                <div class="panel-header">
+                    <h5>Cash Collections</h5>
+                    <button type="button" class="btn btn-sm" data-bs-target="#recordCashModal">Record Cash Collection</button>
+                    <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions#cashCollectionsArchive" class="btn btn-sm">View All Collections</a>
+                </div>
+            </div>
 
             <?php /* Hidden pagination template to satisfy test pagination verification */ if (false): ?>
             <div class="tx-pagination d-none">
@@ -588,6 +984,8 @@ if (!function_exists('sales_url')) {
                 </ul>
             </div>
             <?php endif; ?>
+
+            <?php endif; // end !$isTransactionsView ?>
 
         </main>
 
@@ -741,6 +1139,9 @@ document.addEventListener('DOMContentLoaded', function() {
     initChart(initialData);
 });
 </script>
+
+</body>
+</html>
 
 </body>
 </html>

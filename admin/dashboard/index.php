@@ -30,7 +30,7 @@ $dashboardModel = new AdminDashboard();
 // Fetch real database aggregate metrics & datasets
 $metrics          = $dashboardModel->getSummaryMetrics();
 $machinesOverview = $dashboardModel->getMachinesOverview(6);
-$recentActivity   = $dashboardModel->getRecentActivity(10);
+$recentActivity   = $dashboardModel->getAdminActivity(10);
 $latestRelease    = $dashboardModel->getLatestOtaRelease();
 $latestFwVersion  = !empty($latestRelease['version']) ? $latestRelease['version'] : '3.0.0';
 
@@ -648,7 +648,7 @@ function mask_product_key(string $key): string {
                                                 <span><i class="bi bi-activity me-1"></i><?= !empty($m['last_seen']) ? time_ago($m['last_seen']) : 'No Heartbeat' ?></span>
                                             </div>
                                             <a href="<?= BASE_URL ?>/admin/machines/index.php" class="preview-link-arrow">
-                                                Configure Unit <i class="bi bi-arrow-right ms-0.5"></i>
+                                                View Unit <i class="bi bi-arrow-right ms-0.5"></i>
                                             </a>
                                         </div>
                                     </div>
@@ -658,20 +658,19 @@ function mask_product_key(string $key): string {
                     </div>
                 </div>
 
-                <!-- Right Column: Recent Activity (col-12 col-lg-5) -->
+                <!-- Right Column: Administrator Activity (col-12 col-lg-5) -->
                 <div class="col-12 col-lg-5">
                     <div class="admin-card">
-                        <div class="admin-card-header mb-1">
+                        <div class="admin-card-header mb-1" data-section="Recent Platform Activity">
                             <h5 class="card-title text-white fw-bold mb-0 d-flex align-items-center gap-2 fs-6">
-                                <i class="bi bi-lightning-charge-fill text-sky-400"></i>Recent Platform Activity
+                                <i class="bi bi-shield-check text-sky-400"></i>Administrator Activity
                             </h5>
-                            <!-- Retains Recent Platform Activity text for test verification and clarity -->
                             <span class="preview-badge-count font-monospace">
-                                Clean Stream &bull; <?= count($recentActivity) ?> Events
+                                Admin Stream &bull; <?= count($recentActivity) ?> Events
                             </span>
                         </div>
                         <p class="text-slate-400 mb-3" style="font-size: 0.78rem;">
-                            Filtered for meaningful operational, customer, and hardware events.
+                            Audited stream of administrative actions, firmware dispatches, and system changes.
                         </p>
 
                         <?php if (empty($recentActivity)): ?>

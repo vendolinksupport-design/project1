@@ -117,7 +117,7 @@ class Notification
                 $recipientEmail = $userRow['email'];
                 $recipientName  = $userRow['full_name'] ?? 'VendoLink Owner';
 
-                $subject = "🚨 [VendoLink Alert] " . $title;
+                $subject = "[VendoLink Notification] " . $title;
                 $htmlBody = $this->buildAlertEmailBody($recipientName, $title, $message, $isCritical, $badge);
 
                 $sent = send_system_email($recipientEmail, $subject, $htmlBody);
@@ -366,7 +366,7 @@ class Notification
                 <p style="color: #cbd5e1; font-size: 14px; line-height: 1.5; margin: 0;">' . nl2br(htmlspecialchars($message)) . '</p>
             </div>
             <div style="text-align: center; margin-bottom: 20px;">
-                <a href="' . BASE_URL . '/dashboard/alerts.php" style="display: inline-block; background-color: #0284c7; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 13px; padding: 10px 20px; border-radius: 6px;">Open VendoLink Alerts Center</a>
+                <a href="' . BASE_URL . '/dashboard/alerts.php" style="display: inline-block; background-color: #0284c7; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 13px; padding: 10px 20px; border-radius: 6px;">Open VendoLink Notifications Center</a>
             </div>
             <div style="border-top: 1px solid #1e293b; padding-top: 14px; text-align: center;">
                 <p style="color: #64748b; font-size: 11px; margin: 0;">This is an automated operational notification sent to ' . htmlspecialchars($name) . '. You can manage alert settings in Owner Notifications preferences.</p>

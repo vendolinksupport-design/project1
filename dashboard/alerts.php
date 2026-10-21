@@ -27,14 +27,14 @@ $maintenanceModel  = new Maintenance();
 $notificationModel = new Notification();
 
 $ownerId       = current_owner_id() ?: (int)($_SESSION['user_id'] ?? 1);
-$activeFilter  = $_GET['filter'] ?? 'all';
+$activeFilter  = 'all';
 
 // Handle "Mark All as Read" action
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'mark_all_read') {
     $notificationModel->markAllAsRead($ownerId);
     $_SESSION['notifications_read_at'] = time();
     flash('success', 'All system notifications marked as read.');
-    redirect('dashboard/alerts.php?filter=' . urlencode($activeFilter));
+    redirect('dashboard/alerts.php');
 }
 
 // Counts for Summary Metrics directly from Notification model
@@ -45,23 +45,24 @@ $hardwareCount   = $summaryMetrics['hardware'];
 
 // Pagination parameters (15 alerts per page maximum)
 $perPage            = 15;
-$totalFilteredItems = $notificationModel->getTotalCount($ownerId, $activeFilter);
+$totalFilteredItems = $notificationModel->getTotalCount($ownerId, 'all');
 $totalPages         = max(1, (int) ceil($totalFilteredItems / $perPage));
 $page               = max(1, min($totalPages, (int) ($_GET['page'] ?? 1)));
 $offset             = ($page - 1) * $perPage;
 
-$pagedNotifications = $notificationModel->getForOwner($ownerId, $activeFilter, $perPage, $offset);
+$pagedNotifications = $notificationModel->getForOwner($ownerId, 'all', $perPage, $offset);
 
 
 if (!function_exists('build_alerts_url')) {
     function build_alerts_url(array $overrides = []): string
     {
         $params = array_merge($_GET, $overrides);
+        unset($params['filter']);
         return 'alerts.php' . (!empty($params) ? '?' . http_build_query($params) : '');
     }
 }
 
-$pageTitle   = term('alerts', 'Alerts');
+$pageTitle   = term('alerts', 'Notifications');
 $currentPage = 'alerts';
 ?>
 <!DOCTYPE html>
@@ -69,7 +70,7 @@ $currentPage = 'alerts';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="<?= APP_NAME ?> — Alerts">
+    <meta name="description" content="<?= APP_NAME ?> — Notifications">
     <meta name="robots" content="noindex, nofollow">
     <title><?= e($pageTitle) ?> — <?= APP_NAME ?></title>
 
@@ -84,7 +85,7 @@ $currentPage = 'alerts';
     <!-- VendoLink CSS -->
     <link rel="stylesheet" href="<?= ASSETS_URL ?>/css/app.css?v=<?= e((string) filemtime(ROOT_PATH . '/assets/css/app.css')) ?>">
     <!-- Favicon -->
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2'><path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/></svg>">
 </head>
 <body class="dashboard-body">
 
@@ -113,10 +114,10 @@ $currentPage = 'alerts';
             <div class="page-header mb-4">
                 <div>
                     <h1 class="page-title">
-                        <i class="bi bi-bell-fill me-2" style="color: var(--vl-orange);"></i><?= term('alerts', 'Alerts') ?>
+                        <i class="bi bi-bell-fill me-2" style="color: var(--vl-orange);"></i><?= term('alerts', 'Notifications') ?>
                     </h1>
                     <p class="page-subtitle">
-                        Real-time alerts, tank level warnings, and hardware events.
+                        Stay informed about tank levels, hardware status, and important system events.
                     </p>
                 </div>
                 <div class="page-header-actions d-flex gap-2 flex-wrap">
@@ -138,12 +139,12 @@ $currentPage = 'alerts';
             <!-- Top KPI Summary Cards (3 Equal Columns) -->
             <div class="row g-3 mb-4">
 
-                <!-- Total Alerts -->
+                <!-- Total Notifications -->
                 <div class="col-12 col-md-4">
                     <div class="stat-card stat-card-accent-info">
                         <div class="stat-card-body">
                             <div class="stat-card-info">
-                                <p class="stat-card-label">Total Alerts</p>
+                                <p class="stat-card-label" data-original="TOTAL NOTIFICATIONS">TOTAL ALERTS</p>
                                 <h3 class="stat-card-value text-info" id="kpiTotalAlerts"><?= $totalAlerts ?></h3>
                                 <p class="stat-card-trend">
                                     <span class="text-muted small">Monitored system events</span>
@@ -156,12 +157,12 @@ $currentPage = 'alerts';
                     </div>
                 </div>
 
-                <!-- Critical Alerts -->
+                <!-- Critical Notifications -->
                 <div class="col-12 col-md-4">
                     <div class="stat-card stat-card-accent-danger">
                         <div class="stat-card-body">
                             <div class="stat-card-info">
-                                <p class="stat-card-label">Critical Alerts</p>
+                                <p class="stat-card-label" data-original="CRITICAL NOTIFICATIONS">CRITICAL ALERTS</p>
                                 <h3 class="stat-card-value text-danger" id="kpiCriticalCount"><?= $criticalCount ?></h3>
                                 <p class="stat-card-trend">
                                     <span class="text-muted small">Low reservoir level warnings</span>
@@ -174,19 +175,19 @@ $currentPage = 'alerts';
                     </div>
                 </div>
 
-                <!-- Hardware Events -->
+                <!-- Hardware Notifications / System Logs -->
                 <div class="col-12 col-md-4">
                     <div class="stat-card stat-card-accent-warning">
                         <div class="stat-card-body">
                             <div class="stat-card-info">
-                                <p class="stat-card-label">Hardware Events</p>
+                                <p class="stat-card-label" data-original="HARDWARE NOTIFICATIONS">SYSTEM LOGS</p>
                                 <h3 class="stat-card-value text-warning" id="kpiHardwareCount"><?= $hardwareCount ?></h3>
                                 <p class="stat-card-trend">
-                                    <span class="text-muted small">Connection &amp; activity logs</span>
+                                    <span class="text-muted small">Restorations, connectivity &amp; activity logs</span>
                                 </p>
                             </div>
                             <div class="stat-card-icon" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;">
-                                <i class="bi bi-cpu-fill"></i>
+                                <i class="bi bi-journal-text"></i>
                             </div>
                         </div>
                     </div>
@@ -199,25 +200,16 @@ $currentPage = 'alerts';
                 <div class="breakdown-header border-bottom border-secondary border-opacity-25 pb-3 mb-3">
                     <div>
                         <h5 class="panel-title mb-1">
-                            <i class="bi bi-list-stars me-2" style="color: var(--vl-cyan);"></i>Alert Stream
+                            <i class="bi bi-list-stars me-2" style="color: var(--vl-cyan);"></i>Notification Feed
                         </h5>
                         <p class="text-muted small mb-0">
-                            Filtered chronological list of hardware warnings and operational events.
+                            A chronological list of system notifications and important events.
                         </p>
                     </div>
                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <a class="btn btn-sm <?= ($activeFilter === 'all') ? 'btn-primary' : 'btn-outline-secondary' ?> font-semibold"
-                           href="<?= build_alerts_url(['filter' => 'all', 'page' => 1]) ?>">
+                        <span class="badge bg-secondary-subtle text-slate-300 border border-secondary border-opacity-25 px-2.5 py-1.5 font-monospace" style="font-size: 0.8rem;">
                             All (<span id="filterAllCount"><?= $totalAlerts ?></span>)
-                        </a>
-                        <a class="btn btn-sm <?= ($activeFilter === 'critical') ? 'btn-danger' : 'btn-outline-danger' ?> font-semibold"
-                           href="<?= build_alerts_url(['filter' => 'critical', 'page' => 1]) ?>">
-                            Critical (<span id="filterCriticalCount"><?= $criticalCount ?></span>)
-                        </a>
-                        <a class="btn btn-sm <?= ($activeFilter === 'hardware') ? 'btn-warning text-dark' : 'btn-outline-warning' ?> font-semibold"
-                           href="<?= build_alerts_url(['filter' => 'hardware', 'page' => 1]) ?>">
-                            Hardware (<span id="filterHardwareCount"><?= $hardwareCount ?></span>)
-                        </a>
+                        </span>
                     </div>
                 </div>
 
@@ -227,7 +219,7 @@ $currentPage = 'alerts';
                         <div class="alert-stream-empty" id="alertStreamEmpty">
                             <i class="bi bi-bell-slash text-muted display-4 d-block mb-3"></i>
                             <h5 class="text-light font-semibold mb-1">No Notifications Found</h5>
-                            <p class="text-muted small mb-0">There are no alerts matching the selected filter criteria.</p>
+                            <p class="text-muted small mb-0">There are no notifications at this time.</p>
                         </div>
                     <?php else: ?>
                         <div class="alert-stream-list" id="alertStreamList" data-last-id="<?= !empty($pagedNotifications) ? (int)$pagedNotifications[0]['id'] : 0 ?>">
@@ -283,9 +275,9 @@ $currentPage = 'alerts';
                 <?php if ($totalPages > 1): ?>
                 <div class="tx-pagination mt-4 pt-3 border-top border-secondary border-opacity-25">
                     <div class="text-muted small">
-                        Showing <strong><?= number_format(count($pagedNotifications)) ?></strong> of <strong><?= number_format($totalFilteredItems) ?></strong> alerts (Page <?= $page ?> of <?= $totalPages ?>)
+                        Showing <strong><?= number_format(count($pagedNotifications)) ?></strong> of <strong><?= number_format($totalFilteredItems) ?></strong> notifications (Page <?= $page ?> of <?= $totalPages ?>)
                     </div>
-                    <nav aria-label="Alerts pagination">
+                    <nav aria-label="Notifications pagination">
                         <ul class="pagination pagination-sm mb-0">
                             <!-- Previous -->
                             <li class="page-item <?= $page <= 1 ? 'disabled' : '' ?>">
@@ -352,13 +344,13 @@ $currentPage = 'alerts';
 function testLiveNotification() {
     // 1. Web Dashboard Toast Alert
     if (window.VendoLink && typeof window.VendoLink.toast === 'function') {
-        window.VendoLink.toast('🔔 PWA Alert: Low Water Reservoir Floater Test Triggered!', 'warning', 6000);
+        window.VendoLink.toast('[Alert] PWA Alert: Low Water Reservoir Floater Test Triggered!', 'warning', 6000);
     }
 
     // 2. Native System Background & Lockscreen Push Notification (Service Worker)
     if (window.VendoLink && typeof window.VendoLink.sendBackgroundNotification === 'function') {
         window.VendoLink.sendBackgroundNotification(
-            '⚠️ CRITICAL: Low Water Reservoir Level',
+            '[CRITICAL] Low Water Reservoir Level',
             'Water tank floater (GPIO 13) triggered LOW on VendoLink Machine 01. Refill immediately.',
             '<?= BASE_URL ?>/dashboard/alerts.php'
         );

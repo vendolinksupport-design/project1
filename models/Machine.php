@@ -134,7 +134,7 @@ class Machine
         $machine['calculated_status'] = $this->evaluateOnlineStatus($machine);
 
         $machine['services'] = $this->db->query(
-            'SELECT * FROM services WHERE machine_id = :machine_id ORDER BY FIELD(service_key, "water", "soap"), id',
+            'SELECT * FROM services WHERE machine_id = :machine_id ORDER BY FIELD(service_key, "water", "soap"), id LIMIT 2',
             [':machine_id' => $machine['id']]
         )->fetchAll();
 
@@ -198,7 +198,7 @@ class Machine
     public function getServices(int $machineId): array
     {
         return $this->db->query(
-            'SELECT * FROM services WHERE machine_id = :mid ORDER BY FIELD(service_key, "water", "soap"), id',
+            'SELECT * FROM services WHERE machine_id = :mid ORDER BY FIELD(service_key, "water", "soap"), id LIMIT 2',
             [':mid' => $machineId]
         )->fetchAll() ?: [];
     }
@@ -518,6 +518,7 @@ class Machine
         $tankKey = strtolower(trim($tankKey));
         $isLow = (strtolower(trim($status)) === 'low');
         $column = ($tankKey === 'water') ? 'water_tank_low' : (($tankKey === 'soap') ? 'soap_tank_low' : null);
+        $timeCol = ($tankKey === 'water') ? 'water_tank_updated_at' : (($tankKey === 'soap') ? 'soap_tank_updated_at' : null);
 
         if (!$column) {
             return ['success' => false, 'error' => 'Invalid tank_key specified. Allowed: water, soap.'];
@@ -529,7 +530,7 @@ class Machine
 
         if ($changed) {
             $this->db->query(
-                "UPDATE machines SET {$column} = :val, updated_at = NOW() WHERE machine_key = :mkey",
+                "UPDATE machines SET {$column} = :val, {$timeCol} = NOW(), updated_at = NOW() WHERE machine_key = :mkey",
                 [':val' => $newVal, ':mkey' => $machineKey]
             );
 
@@ -1008,5 +1009,116 @@ class Machine
                 'desc'      => 'Water & Soap wash with dual float reservoir sensors',
             ],
         };
+    }
+
+    /**
+     * Resolve independent tank sensor telemetry status for a given outlet channel.
+     *
+     * @param array $machine Machine record with calculated_status, water_tank_low, soap_tank_low, last_seen
+     * @param array $service Service record for this outlet (type, icon, service_key, name)
+     * @param int $outletNum Outlet index (1 or 2)
+     * @return array Status descriptor including status, status_label, level_label, pin, badge_class, icon, style
+     */
+    public static function getOutletSensorStatus(array $machine, array $service, int $outletNum): array
+    {
+        $gpioPin = ($outletNum === 1) ? 13 : 12;
+        $sensorId = "sensor_{$outletNum}";
+
+        $calcStatus = strtolower(trim($machine['calculated_status'] ?? ''));
+        if (empty($calcStatus) && isset($machine['status'])) {
+            $calcStatus = strtolower(trim($machine['status']));
+        }
+        $isOnline = ($calcStatus === 'online');
+
+        $machType = strtolower(trim($machine['machine_type'] ?? 'carwash'));
+        $typeBadge = self::getMachineTypeBadge($machType);
+        $machHasTanks = (bool)($typeBadge['has_tanks'] ?? true);
+
+        $svcType = strtolower(trim($service['type'] ?? $service['service_key'] ?? ''));
+        $svcIcon = strtolower(trim($service['icon'] ?? $svcType));
+
+        $isDryService = in_array($svcType, ['air', 'blower', 'tire_air'], true)
+                     || in_array($svcIcon, ['tire_air', 'blower', 'speedometer2', 'wind'], true);
+
+        // 1. Dry service or non-liquid profile: Sensor Disabled
+        if (!$machHasTanks || $isDryService) {
+            return [
+                'sensor_id'    => $sensorId,
+                'gpio_pin'     => $gpioPin,
+                'supported'    => false,
+                'is_connected' => false,
+                'status'       => 'disabled',
+                'status_label' => 'Disabled (Dry)',
+                'level_label'  => 'Not Applicable',
+                'badge_class'  => 'badge-sensor-disabled',
+                'icon'         => 'bi-dash-circle',
+                'color'        => '#94a3b8',
+                'bg'           => 'rgba(100,116,139,0.15)',
+                'border'       => 'rgba(100,116,139,0.25)',
+                'last_updated' => null,
+            ];
+        }
+
+        // 2. Controller is Offline / Disconnected
+        if (!$isOnline) {
+            return [
+                'sensor_id'    => $sensorId,
+                'gpio_pin'     => $gpioPin,
+                'supported'    => true,
+                'is_connected' => false,
+                'status'       => 'disconnected',
+                'status_label' => 'Disconnected (Offline)',
+                'level_label'  => 'Unknown',
+                'badge_class'  => 'badge-sensor-disconnected',
+                'icon'         => 'bi-shield-slash',
+                'color'        => '#94a3b8',
+                'bg'           => 'rgba(148,163,184,0.15)',
+                'border'       => 'rgba(148,163,184,0.3)',
+                'last_updated' => $machine['last_seen'] ?? null,
+            ];
+        }
+
+        // 3. Online: Check independent sensor flag
+        $isLow = ($outletNum === 1)
+            ? !empty($machine['water_tank_low'])
+            : !empty($machine['soap_tank_low']);
+
+        $lastUpdated = ($outletNum === 1)
+            ? ($machine['water_tank_updated_at'] ?? $machine['last_seen'] ?? null)
+            : ($machine['soap_tank_updated_at'] ?? $machine['last_seen'] ?? null);
+
+        if ($isLow) {
+            return [
+                'sensor_id'    => $sensorId,
+                'gpio_pin'     => $gpioPin,
+                'supported'    => true,
+                'is_connected' => true,
+                'status'       => 'low',
+                'status_label' => 'Low Level (Refill)',
+                'level_label'  => 'Low',
+                'badge_class'  => 'badge-sensor-low',
+                'icon'         => 'bi-exclamation-triangle-fill',
+                'color'        => '#f87171',
+                'bg'           => 'rgba(239,68,68,0.15)',
+                'border'       => 'rgba(239,68,68,0.35)',
+                'last_updated' => $lastUpdated,
+            ];
+        }
+
+        return [
+            'sensor_id'    => $sensorId,
+            'gpio_pin'     => $gpioPin,
+            'supported'    => true,
+            'is_connected' => true,
+            'status'       => 'connected',
+            'status_label' => 'Connected &bull; Normal Level',
+            'level_label'  => 'Normal',
+            'badge_class'  => 'badge-sensor-connected',
+            'icon'         => 'bi-shield-check',
+            'color'        => '#34d399',
+            'bg'           => 'rgba(16,185,129,0.15)',
+            'border'       => 'rgba(16,185,129,0.35)',
+            'last_updated' => $lastUpdated,
+        ];
     }
 }

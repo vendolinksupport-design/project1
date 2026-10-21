@@ -64,9 +64,10 @@ class MachineController
             // 2. Update LCD lines
             $machineModel->updateLcdLines($machineId, $line1, $line2, $line3, $line4);
 
-            // 3. Update Services (Outlet 1 & Outlet 2)
+            // 3. Update Services (Outlet 1 & Outlet 2 strictly)
             if (isset($_POST['services']) && is_array($_POST['services'])) {
-                foreach ($_POST['services'] as $idKey => $item) {
+                $targetServices = array_slice($_POST['services'], 0, 2, true);
+                foreach ($targetServices as $idKey => $item) {
                     $serviceId      = filter_var($item['id'] ?? $idKey, FILTER_VALIDATE_INT);
                     $coinValue      = filter_var($item['coin_value'] ?? 5.00, FILTER_VALIDATE_FLOAT);
                     $serviceSeconds = filter_var($item['service_seconds'] ?? null, FILTER_VALIDATE_INT);

@@ -161,7 +161,7 @@ $totalMaintCount = count($maintItems);
 
     <!-- Card 3 — Water Sales -->
     <div class="col-6 col-xl-3">
-        <a href="<?= BASE_URL ?>/dashboard/archive.php?service=water" class="admin-stat-card text-decoration-none" title="<?= e($s1Title) ?> Sales History">
+        <a href="<?= BASE_URL ?>/dashboard/sales.php?service=water" class="admin-stat-card text-decoration-none" title="<?= e($s1Title) ?> Sales">
             <div>
                 <div class="admin-stat-label"><?= e($s1Title) ?> Sales</div>
                 <div class="admin-stat-value text-white">₱<?= number_format($todayStats['water_revenue'], 2) ?></div>
@@ -179,7 +179,7 @@ $totalMaintCount = count($maintItems);
 
     <!-- Card 4 — Soap Sales -->
     <div class="col-6 col-xl-3">
-        <a href="<?= BASE_URL ?>/dashboard/archive.php?service=soap" class="admin-stat-card text-decoration-none" title="<?= e($s2Title) ?> Sales History">
+        <a href="<?= BASE_URL ?>/dashboard/sales.php?service=soap" class="admin-stat-card text-decoration-none" title="<?= e($s2Title) ?> Sales">
             <div>
                 <div class="admin-stat-label"><?= e($s2Title) ?> Sales</div>
                 <div class="admin-stat-value text-white">₱<?= number_format($todayStats['soap_revenue'], 2) ?></div>
@@ -630,7 +630,7 @@ $totalMaintCount = count($maintItems);
             </div>
             <div>
                 <div class="d-flex align-items-center gap-2">
-                    <h5 class="panel-title mb-0 fw-bold text-white">Controller Rack Unit</h5>
+                    <h5 class="panel-title mb-0 fw-bold text-white"><?= e(!empty($machineInfo['name']) && !in_array(strtolower(trim($machineInfo['name'])), ['controller rack unit', 'primary unit 01', 'primary unit', 'unit 01'], true) ? $machineInfo['name'] : 'Car Wash Controller') ?></h5>
                     <span class="badge bg-dark text-slate-300 border border-secondary border-opacity-25 font-monospace" style="font-size: 0.7rem;">VendoCore</span>
                 </div>
                 <span class="text-muted small font-monospace d-block mt-0.5">ESP32-WROOM-32 &bull; <?= e($machineInfo['machine_code'] ?? 'Unit 01') ?></span>
@@ -949,110 +949,4 @@ $totalMaintCount = count($maintItems);
         </table>
     </div>
     <?php endif; ?>
-</div>
-
-<!-- ============================================================
-     6. Recent Business & System Activity — Full Width (5-Item Quick Preview)
-     ============================================================ -->
-<div class="report-section-card dashboard-recent-activity-card mb-4">
-    <div class="breakdown-header">
-        <div>
-            <h5 class="panel-title mb-1">
-                <i class="bi bi-activity me-2 text-primary-vl"></i><?= term('recent_activity') ?>
-            </h5>
-            <p class="text-muted small mb-0">
-                Audit feed of system authentications, service configurations, and operations.
-            </p>
-        </div>
-        <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions" class="btn btn-sm btn-outline-primary text-nowrap d-inline-flex align-items-center">
-            <?= term('view_more', 'View More') ?>
-        </a>
-    </div>
-    <div class="p-0 activity-container" style="margin: 0 -1.35rem -1.25rem;">
-        <?php
-        try {
-            $db      = Database::getInstance();
-            $ownerId = current_owner_id();
-            if ($ownerId !== null && $ownerId > 0) {
-                $logs = $db->query(
-                    'SELECT al.*, u.full_name, u.role
-                     FROM activity_logs al
-                     LEFT JOIN users u ON al.user_id = u.id
-                     WHERE al.user_id = :uid
-                     ORDER BY al.created_at DESC, al.id DESC
-                     LIMIT 5',
-                    [':uid' => $ownerId]
-                )->fetchAll();
-            } else {
-                $logs = $db->query(
-                    'SELECT al.*, u.full_name, u.role
-                     FROM activity_logs al
-                     LEFT JOIN users u ON al.user_id = u.id
-                     ORDER BY al.created_at DESC, al.id DESC
-                     LIMIT 5'
-                )->fetchAll();
-            }
-        } catch (PDOException $e) {
-            $logs = [];
-        }
-
-        $previewLogs = array_slice($logs ?? [], 0, 5);
-
-        if (empty($previewLogs)): ?>
-        <div class="activity-empty py-3">
-            <i class="bi bi-clock-history" style="font-size: 1.8rem; color: var(--vl-text-muted);"></i>
-            <p class="text-muted mt-2 mb-0 small">No activity recorded yet.</p>
-        </div>
-        <?php else: ?>
-        <div class="activity-list">
-            <?php foreach ($previewLogs as $log):
-                $action = strtoupper($log['action']);
-                $actionIcon = match ($action) {
-                    'LOGIN', 'AUTO_LOGIN'                     => ['bi-box-arrow-in-right', 'activity-icon-success', 'USER LOGIN'],
-                    'LOGOUT'                                  => ['bi-box-arrow-left',     'activity-icon-secondary', 'LOGOUT'],
-                    'LOGIN_FAILED'                            => ['bi-x-circle',           'activity-icon-danger', 'AUTH FAILED'],
-                    'CONFIG_UPDATE', 'SERVICE_CONFIG_UPDATED' => ['bi-sliders',            'activity-icon-info', 'CONFIG UPDATE'],
-                    'MAINTENANCE_COMPLETED'                   => ['bi-check2-circle',      'activity-icon-success', 'MAINTENANCE'],
-                    'TX_RECORD', 'SERVICE'                    => ['bi-receipt',            'activity-icon-info', 'TRANSACTION'],
-                    'PASSWORD_RESET'                          => ['bi-key',                'activity-icon-warning', 'SECURITY'],
-                    'SETUP'                                   => ['bi-rocket-takeoff',     'activity-icon-info', 'SETUP'],
-                    default                                   => ['bi-activity',           'activity-icon-secondary', 'SYSTEM'],
-                };
-            ?>
-            <div class="activity-item">
-                <div class="activity-icon <?= $actionIcon[1] ?>">
-                    <i class="bi <?= $actionIcon[0] ?>"></i>
-                </div>
-                <div class="activity-content">
-                    <div class="activity-text">
-                        <strong class="text-light"><?= e($log['full_name'] ?? 'System') ?></strong>
-                        <span class="text-secondary">&mdash; <?= e($log['description'] ?? $log['action']) ?></span>
-                    </div>
-                    <div class="activity-meta">
-                        <span class="activity-time">
-                            <i class="bi bi-clock me-1"></i>
-                            <?= time_ago($log['created_at']) ?>
-                        </span>
-                        <?php if (!empty($log['ip_address'])): ?>
-                        <span class="activity-ip">
-                            <i class="bi bi-geo me-1"></i>
-                            <?= e($log['ip_address']) ?>
-                        </span>
-                        <?php endif; ?>
-                    </div>
-                </div>
-                <div class="activity-action-label">
-                    <span class="action-tag"><?= e($actionIcon[2]) ?></span>
-                </div>
-            </div>
-            <?php endforeach; ?>
-            <?php
-            $emptySlots = max(0, 5 - count($previewLogs));
-            for ($i = 0; $i < $emptySlots; $i++):
-            ?>
-            <div class="activity-item-spacer" aria-hidden="true"></div>
-            <?php endfor; ?>
-        </div>
-        <?php endif; ?>
-    </div>
 </div>

@@ -35,7 +35,8 @@ define('TERM_OFFLINE_MACHINES',       'Offline Machines');
 define('TERM_OPEN_SUPPORT_REQUESTS',  'Open Support Requests');
 
 define('TERM_DASHBOARD',              'Dashboard');
-define('TERM_ALERTS',                 'Alerts');
+define('TERM_ALERTS',                 'Notifications');
+define('TERM_NOTIFICATIONS',          'Notifications');
 define('TERM_MAINTENANCE',            'Maintenance');
 define('TERM_SERVICE_REMINDERS',       'Service Reminders');
 define('TERM_HISTORY',                'History');
@@ -98,7 +99,8 @@ const VENDOLINK_TERMINOLOGY = [
     'machine_activation'      => TERM_MACHINE_ACTIVATION,
     'admin_accounts'          => TERM_ADMIN_ACCOUNTS,
     'customer_support'        => TERM_CUSTOMER_SUPPORT,
-    'alerts'                  => TERM_ALERTS,
+    'alerts'                  => TERM_NOTIFICATIONS,
+    'notifications'           => TERM_NOTIFICATIONS,
     'maintenance'             => TERM_MAINTENANCE,
     'service_reminders'       => TERM_SERVICE_REMINDERS,
     'history'                 => TERM_HISTORY,

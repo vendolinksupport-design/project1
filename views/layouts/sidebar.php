@@ -122,7 +122,7 @@ $authUser = current_user();
             <?php nav_item(
                 BASE_URL . '/dashboard/alerts.php',
                 'bell',
-                term('alerts', 'Alerts'),
+                term('alerts', 'Notifications'),
                 'alerts'
             ); ?>
             <?php nav_item(
@@ -161,7 +161,7 @@ $authUser = current_user();
                             <li class="nav-submenu-item">
                                 <a href="<?= BASE_URL ?>/dashboard/sales.php"
                                    class="nav-submenu-link <?= $isSalesChildActive ? 'active' : '' ?>">
-                                    <span class="nav-icon"><?= lucide_icon('dollar-sign', 'sidebar-lucide-icon') ?></span>
+                                    <span class="nav-icon"><?= lucide_icon('peso', 'sidebar-lucide-icon') ?></span>
                                     <span class="nav-label">Sales</span>
                                 </a>
                             </li>

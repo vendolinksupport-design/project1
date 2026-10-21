@@ -1,11 +1,11 @@
 <?php
 /**
  * ============================================================
- * VendoLink — Machines & Hardware Fleet Hub (Unified Command)
+ * VendoLink — Machines & Hardware Operations Hub (Unified Command)
  * ============================================================
  *
  * Unified command center for:
- * 1. Fleet Operations (Live telemetry, coins, water/soap levels, status)
+ * 1. Machine Operations (Live telemetry, coins, water/soap levels, status)
  * 2. Factory Provisioning & Keys (ESP32 enrollment, key generation, packaging stickers)
  *
  * @package VendoLink
@@ -29,8 +29,8 @@ $pdo            = $db->getConnection();
 $flashSuccess = '';
 $flashError   = '';
 
-// Active Tab: 'fleet' (default) or 'provisioning'
-$activeTab = ($_GET['tab'] ?? 'fleet') === 'provisioning' ? 'provisioning' : 'fleet';
+// Active Tab: 'machines' (default) or 'provisioning'
+$activeTab = (isset($_GET['tab']) && $_GET['tab'] === 'provisioning') ? 'provisioning' : 'machines';
 
 // Handle POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('success', "Machine name updated successfully to <strong>" . e($newName) . "</strong>.", true);
             log_activity('ADMIN_ACTION', "Renamed machine ID #{$machineId} to '{$newName}'");
         }
-        redirect('admin/machines/index.php?tab=fleet');
+        redirect('admin/machines/index.php?tab=machines');
         exit;
     }
 
@@ -83,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 flash('danger', "Database error: " . $e->getMessage(), true);
             }
         }
-        redirect('admin/machines/index.php?tab=fleet');
+        redirect('admin/machines/index.php?tab=machines');
         exit;
     }
 
@@ -435,7 +435,7 @@ $currentDir  = 'machines';
             <!-- Navigation Tabs: Tab 1 = All Machines, Tab 2 = Activation & Keys -->
             <ul class="nav nav-tabs mb-4" id="machinesHubTab" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link <?= $activeTab !== 'provisioning' ? 'active' : '' ?>" id="fleet-tab" data-bs-toggle="tab" data-bs-target="#fleetPane" type="button" role="tab" aria-controls="fleetPane" aria-selected="<?= $activeTab !== 'provisioning' ? 'true' : 'false' ?>">
+                    <button class="nav-link <?= $activeTab !== 'provisioning' ? 'active' : '' ?>" id="machines-tab" data-bs-toggle="tab" data-bs-target="#machinesPane" type="button" role="tab" aria-controls="machinesPane" aria-selected="<?= $activeTab !== 'provisioning' ? 'true' : 'false' ?>">
                         <i class="bi bi-cpu text-info me-2"></i>All Machines (<?= count($machines) ?>)
                     </button>
                 </li>
@@ -449,9 +449,9 @@ $currentDir  = 'machines';
             <div class="tab-content" id="machinesHubTabContent">
                 
                 <!-- ======================================================== -->
-                <!-- TAB 1: ACTIVE FLEET OPERATIONS                           -->
+                <!-- TAB 1: ACTIVE MACHINE OPERATIONS                         -->
                 <!-- ======================================================== -->
-                <div class="tab-pane fade <?= $activeTab !== 'provisioning' ? 'show active' : '' ?>" id="fleetPane" role="tabpanel" aria-labelledby="fleet-tab">
+                <div class="tab-pane fade <?= $activeTab !== 'provisioning' ? 'show active' : '' ?>" id="machinesPane" role="tabpanel" aria-labelledby="machines-tab">
                     
                     <!-- Metric Summary Cards -->
                     <div class="row g-3 mb-4">
@@ -495,7 +495,7 @@ $currentDir  = 'machines';
                     <!-- Machine List Section -->
                     <div class="mb-3 d-flex align-items-center justify-content-between">
                         <h5 class="fw-bold text-light mb-0">
-                            <i class="bi bi-list-task text-primary me-2"></i>Registered Machine Units (<?= count($machines) ?>)
+                            <i class="bi bi-list-task text-primary me-2"></i>Registered Machine Units
                         </h5>
                         <span class="text-secondary small">Click <strong>View Details</strong> to expand machine info</span>
                     </div>
@@ -582,14 +582,14 @@ $currentDir  = 'machines';
                                 <div class="machine-details-drawer">
                                     <div class="row g-3">
                                         <!-- Box 1: Hardware & Network Details -->
-                                        <div class="col-12 col-md-4">
-                                            <div class="detail-box">
+                                        <div class="col-12 col-md-6">
+                                            <div class="detail-box h-100">
                                                 <div class="detail-title">
                                                     <i class="bi bi-hdd-network text-info"></i>Hardware &amp; Network
                                                 </div>
                                                 <div class="detail-row">
                                                     <span class="detail-label">Hardware MAC:</span>
-                                                    <span class="detail-value text-info"><?= e($m['device_mac'] ?? 'Legacy Unit') ?></span>
+                                                    <span class="detail-value text-info"><?= !empty($m['device_mac']) ? e($m['device_mac']) : '<span class="text-secondary fst-italic">Not Assigned</span>' ?></span>
                                                 </div>
                                                 <div class="detail-row">
                                                     <span class="detail-label">Local IP Address:</span>
@@ -607,54 +607,21 @@ $currentDir  = 'machines';
                                                 </div>
                                                 <div class="detail-row">
                                                     <span class="detail-label">Machine Key:</span>
-                                                    <span class="detail-value text-secondary"><?= e($m['machine_key']) ?></span>
+                                                    <span class="detail-value text-secondary font-monospace"><?= e($m['machine_key']) ?></span>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <!-- Box 2: Vending & Health -->
-                                        <div class="col-12 col-md-4">
-                                            <div class="detail-box">
-                                                <div class="detail-title">
-                                                    <i class="bi bi-activity text-warning"></i>Vending &amp; Health
-                                                </div>
-                                                <div class="detail-row">
-                                                    <span class="detail-label">Machine Profile:</span>
-                                                    <span class="detail-value text-<?= $mBadge['color'] ?> fw-semibold">
-                                                        <i class="bi <?= $mBadge['icon'] ?> me-1"></i><?= e($mBadge['label']) ?>
-                                                    </span>
-                                                </div>
-                                                <div class="detail-row">
-                                                    <span class="detail-label">Completed Vends:</span>
-                                                    <span class="detail-value"><?= number_format((int)($m['total_transactions'] ?? 0)) ?> vends</span>
-                                                </div>
-                                                <?php if ($mType === 'carwash'): ?>
-                                                <div class="detail-row">
-                                                    <span class="detail-label">Current Water Tank:</span>
-                                                    <span class="detail-value"><?= !empty($m['water_tank_low']) ? '<span class="text-danger">LOW</span>' : '<span class="text-success">NORMAL</span>' ?></span>
-                                                </div>
-                                                <div class="detail-row">
-                                                    <span class="detail-label">Current Soap Tank:</span>
-                                                    <span class="detail-value"><?= !empty($m['soap_tank_low']) ? '<span class="text-danger">LOW</span>' : '<span class="text-success">NORMAL</span>' ?></span>
-                                                </div>
-                                                <?php else: ?>
-                                                <div class="detail-row">
-                                                    <span class="detail-label">Tank Sensors:</span>
-                                                    <span class="detail-value text-muted">Disabled (Air / Blower Unit)</span>
-                                                </div>
-                                                <?php endif; ?>
-                                                <div class="detail-row">
-                                                    <span class="detail-label">Registration State:</span>
-                                                    <span class="detail-value text-info font-monospace"><?= strtoupper(e($m['registration_status'])) ?></span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- Box 3: Product Key & Settings -->
-                                        <div class="col-12 col-md-4">
-                                            <div class="detail-box">
+                                        <!-- Box 2: Product Key & Settings -->
+                                        <div class="col-12 col-md-6">
+                                            <div class="detail-box h-100">
                                                 <div class="detail-title">
                                                     <i class="bi bi-shield-lock text-success"></i>Product Key &amp; Settings
+                                                </div>
+
+                                                <div class="detail-row mb-2">
+                                                    <span class="detail-label">Registration State:</span>
+                                                    <span class="detail-value text-info font-monospace fw-bold"><?= ($m['registration_status'] === 'legacy') ? 'STANDARD' : strtoupper(e($m['registration_status'])) ?></span>
                                                 </div>
                                                 
                                                 <div class="mb-2">
@@ -765,79 +732,6 @@ $currentDir  = 'machines';
                 <!-- ======================================================== -->
                 <div class="tab-pane fade <?= $activeTab === 'provisioning' ? 'show active' : '' ?>" id="provisioningPane" role="tabpanel" aria-labelledby="provisioning-tab">
                     
-                    <!-- Hardware Provisioning Workflow Visual Guide -->
-                    <div class="admin-card mb-4">
-                        <div class="d-flex align-items-center justify-content-between mb-3">
-                            <h5 class="fw-bold text-light mb-0">
-                                <i class="bi bi-cpu text-info me-2"></i>ESP32 Hardware Provisioning Workflow
-                            </h5>
-                            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#setupGuideDetails">
-                                <i class="bi bi-question-circle me-1"></i>Setup Steps
-                            </button>
-                        </div>
-
-                        <div class="row g-3">
-                            <div class="col-12 col-md-4">
-                                <div class="p-3 rounded-3 h-100" style="background: rgba(14, 165, 233, 0.08); border: 1px solid rgba(14, 165, 233, 0.25);">
-                                    <div class="d-flex align-items-center mb-2">
-                                        <span class="step-num-badge bg-primary text-light me-2">1</span>
-                                        <span class="fw-bold text-info">ESP32 Connects to Wi-Fi</span>
-                                    </div>
-                                    <p class="small text-secondary mb-0">Power on controller $\rightarrow$ Connect phone to <code class="text-info">VendoLink-Setup-XXXX</code> $\rightarrow$ Enter venue Wi-Fi name and password.</p>
-                                </div>
-                            </div>
-
-                            <div class="col-12 col-md-4">
-                                <div class="p-3 rounded-3 h-100" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25);">
-                                    <div class="d-flex align-items-center mb-2">
-                                        <span class="step-num-badge bg-warning text-dark me-2">2</span>
-                                        <span class="fw-bold text-warning">Automatic Enrollment</span>
-                                    </div>
-                                    <p class="small text-secondary mb-0">Controller contacts the server with its hardware MAC address and receives a machine ID (<code class="text-warning">MCH-XXXX</code>).</p>
-                                </div>
-                            </div>
-
-                            <div class="col-12 col-md-4">
-                                <div class="p-3 rounded-3 h-100" style="background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.25);">
-                                    <div class="d-flex align-items-center mb-2">
-                                        <span class="step-num-badge bg-success text-light me-2">3</span>
-                                        <span class="fw-bold text-success">Key Generation &amp; Packaging</span>
-                                    </div>
-                                    <p class="small text-secondary mb-0">Click <strong>Generate Key</strong> below, print the packaging sticker, and paste it on the machine box for customer claiming.</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Collapsible Full Guide -->
-                        <div class="collapse mt-3" id="setupGuideDetails">
-                            <div class="p-3 rounded-3 bg-dark bg-opacity-75 border border-secondary border-opacity-25 small text-secondary">
-                                <h6 class="fw-bold text-light mb-2"><i class="bi bi-gear-wide-connected text-info me-2"></i>Detailed Controller Setup &amp; Wi-Fi Provisioning Steps</h6>
-                                <div class="row g-3">
-                                    <div class="col-12 col-md-6">
-                                        <div class="fw-semibold text-info mb-1"><i class="bi bi-phone me-1"></i>Step-by-Step Hardware Wi-Fi Setup:</div>
-                                        <ol class="ps-3 mb-2">
-                                            <li>Power on the ESP32 vending machine controller (12V PSU or USB).</li>
-                                            <li>The 20x4 LCD will display <span class="badge bg-secondary">PORTAL ACTIVE</span>.</li>
-                                            <li>On your smartphone or PC, look for Wi-Fi SSID: <strong class="text-light">VendoLink-Setup-XXXX</strong>.</li>
-                                            <li>Connect using default password: <code class="text-warning">vendolink123</code>.</li>
-                                            <li>A captive portal popup will appear (or navigate to <code class="text-info">http://192.168.4.1</code>).</li>
-                                            <li>Enter your venue's Wi-Fi SSID and Password, then click <strong>Save &amp; Connect</strong>.</li>
-                                        </ol>
-                                    </div>
-                                    <div class="col-12 col-md-6">
-                                        <div class="fw-semibold text-info mb-1"><i class="bi bi-cloud-check me-1"></i>Automatic Handshake &amp; Enrollment:</div>
-                                        <ul class="ps-3 mb-2">
-                                            <li>The ESP32 connects to Wi-Fi and gets an IP address from your router.</li>
-                                            <li>It securely contacts <code class="text-light">/api/machine/register.php</code> using its hardware eFuse MAC.</li>
-                                            <li>The controller receives unique per-device credentials (<span class="badge bg-primary">MCH-XXXX</span>).</li>
-                                            <li>The machine immediately appears in the <strong>Provisioning &amp; Key Pairing Table</strong> below!</li>
-                                        </ul>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- Single Unified Hardware & Keys Table -->
                     <div class="admin-card">
                         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-2">
@@ -901,13 +795,13 @@ $currentDir  = 'machines';
                                                     <?php if (!empty($em['device_mac'])): ?>
                                                         <code class="text-info"><?= e($em['device_mac']) ?></code>
                                                     <?php else: ?>
-                                                        <span class="text-secondary small fst-italic">None (Legacy)</span>
+                                                        <span class="text-secondary small fst-italic">Not Assigned</span>
                                                     <?php endif; ?>
                                                 </td>
                                                 <td>
                                                     <?php if ($regStatus === 'registered'): ?>
                                                         <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2.5 py-1 fw-semibold">
-                                                            <i class="bi bi-cpu me-1"></i>Enrolled (Ready for Key)
+                                                             <i class="bi bi-cpu me-1"></i>Enrolled (Ready for Key)
                                                         </span>
                                                     <?php elseif ($regStatus === 'key_issued'): ?>
                                                         <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 rounded-pill px-2.5 py-1 fw-semibold">
@@ -923,7 +817,7 @@ $currentDir  = 'machines';
                                                         </span>
                                                     <?php else: ?>
                                                         <span class="badge bg-secondary bg-opacity-25 text-slate-300 border border-secondary border-opacity-25 rounded-pill px-2.5 py-1 fw-semibold">
-                                                            <i class="bi bi-archive me-1"></i>Legacy
+                                                            <i class="bi bi-cpu me-1"></i>Standard
                                                         </span>
                                                     <?php endif; ?>
                                                 </td>
@@ -988,7 +882,7 @@ $currentDir  = 'machines';
                                                     <?php elseif ($regStatus === 'disabled'): ?>
                                                         <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-2.5 py-1">Decommissioned</span>
                                                     <?php else: ?>
-                                                        <span class="text-secondary small fst-italic">Legacy Unit</span>
+                                                        <span class="text-secondary small fst-italic">Standard Provision</span>
                                                     <?php endif; ?>
                                                 </td>
                                             </tr>
@@ -1496,8 +1390,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (hash === '#provisioning') {
         var pTab = document.getElementById('provisioning-tab');
         if (pTab) bootstrap.Tab.getOrCreateInstance(pTab).show();
-    } else if (hash === '#fleet') {
-        var fTab = document.getElementById('fleet-tab');
+    } else if (hash === '#machines' || hash === '#all') {
+        var fTab = document.getElementById('machines-tab');
         if (fTab) bootstrap.Tab.getOrCreateInstance(fTab).show();
     }
 });

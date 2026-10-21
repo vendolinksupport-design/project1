@@ -80,6 +80,9 @@ try {
 
     $isAnyDispensing = ($outlet1Running || $outlet2Running);
 
+    $outlet1Sensor = Machine::getOutletSensorStatus($machine, $waterSvc ?? [], 1);
+    $outlet2Sensor = Machine::getOutletSensorStatus($machine, $soapSvc ?? [], 2);
+
     echo json_encode([
         'success'         => true,
         'machine_id'      => (int)$machine['id'],
@@ -104,6 +107,7 @@ try {
             'state'             => $isConnected ? ($outlet1Running ? 'RUNNING' : 'STANDBY (IDLE)') : 'DE-ENERGIZED (OFF)',
             'remaining_seconds' => $outlet1Secs,
             'remaining_clock'   => sprintf('%02d:%02d', intdiv($outlet1Secs, 60), $outlet1Secs % 60),
+            'tank_sensor'       => $outlet1Sensor,
         ],
         'outlet2'         => [
             'key'               => $soapSvc['service_key'] ?? 'soap',
@@ -112,6 +116,7 @@ try {
             'state'             => $isConnected ? ($outlet2Running ? 'RUNNING' : 'STANDBY (IDLE)') : 'DE-ENERGIZED (OFF)',
             'remaining_seconds' => $outlet2Secs,
             'remaining_clock'   => sprintf('%02d:%02d', intdiv($outlet2Secs, 60), $outlet2Secs % 60),
+            'tank_sensor'       => $outlet2Sensor,
         ],
         'runtime'         => [
             'today_seconds'   => $todayRuntimeSecs,

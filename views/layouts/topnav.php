@@ -49,7 +49,7 @@ if (!empty($topNavMachines)) {
 $pageLabels = [
     'index'           => 'Dashboard',
     'machines'        => 'Machines',
-    'alerts'          => term('alerts', 'Alerts'),
+    'alerts'          => term('alerts', 'Notifications'),
     'activity'        => 'Live Activity',
     'sales'           => 'Sales Overview',
     'reports'         => 'Reports',
@@ -210,7 +210,7 @@ $pageLabel = $pageLabels[$currentPage] ?? ucfirst(str_replace('_', ' ', $current
                 </div>
                 <div class="notif-footer">
                     <a href="<?= BASE_URL ?>/dashboard/alerts.php" class="btn btn-sm btn-outline-primary w-100 py-2 font-semibold">
-                        <?= lucide_icon('bell', 'me-1') ?> View Alerts
+                        <?= lucide_icon('bell', 'me-1') ?> View Notifications
                     </a>
                 </div>
             </div>

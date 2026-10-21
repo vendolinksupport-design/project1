@@ -77,6 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg .= "<li><strong>Product &amp; License Keys Cleared:</strong> " . ((int)$del['product_keys'] + (int)$del['license_keys']) . "</li>";
             $msg .= "<li><strong>Admin Account Preserved:</strong> " . e($report['preserved']['admin_email']) . " (ID #" . (int)$report['preserved']['admin_id'] . ")</li>";
             $msg .= "<li><strong>Settings Preserved:</strong> " . (int)$report['preserved']['settings_count'] . " system configuration entries</li>";
+            $msg .= "<li><strong>Machine ID Counter:</strong> Reset to <strong>#1</strong> (clean demonstration state)</li>";
             $msg .= "<li><strong>OTA Releases Preserved:</strong> <strong class='text-info'>v3.3.0</strong> (Default Latest Build) &amp; <strong class='text-info'>v3.4.0</strong> (Available Update Build)</li>";
             $msg .= "</ul>";
 
@@ -319,14 +320,14 @@ $currentDir  = 'system';
                                 <i class="bi bi-x-circle-fill text-danger me-2 mt-1"></i>
                                 <div>
                                     <strong class="text-light">Machines &amp; Hardware Records:</strong><br>
-                                    All <?= (int)$summary['machines'] ?> machines and their configured services (<?= (int)$summary['services'] ?> records) will be cleared.
+                                    All <?= (int)$summary['machines'] ?> machines and their configured services (<?= (int)$summary['services'] ?> records) will be cleared. Machine ID counter resets to #1 for demonstration.
                                 </div>
                             </li>
                             <li class="mb-2.5 d-flex align-items-start">
                                 <i class="bi bi-x-circle-fill text-danger me-2 mt-1"></i>
                                 <div>
                                     <strong class="text-light">Product &amp; License Keys:</strong><br>
-                                    All <?= (int)$summary['product_keys'] ?> Product Keys and <?= (int)$summary['license_keys'] ?> legacy license keys will be purged.
+                                    All <?= (int)$summary['product_keys'] ?> Product Keys and <?= (int)$summary['license_keys'] ?> software license keys will be purged.
                                 </div>
                             </li>
                             <li class="mb-2.5 d-flex align-items-start">
