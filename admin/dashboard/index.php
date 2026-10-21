@@ -6,7 +6,7 @@
  *
  * Space-efficient, streamlined platform-wide overview for VendoLink
  * Administrators. Consolidates key metrics into 4 essential KPI cards,
- * provides machine fleet status, product keys summary, and a fixed-header
+ * provides connected machines status, product keys summary, and a fixed-header
  * scrollable stream of recent platform activity.
  *
  * STRICTLY RESTRICTED TO VENDOLINK ADMINISTRATORS (role = 'administrator').
@@ -448,7 +448,7 @@ function mask_product_key(string $key): string {
                         Platform Dashboard &mdash; Platform-wide aggregate metrics, machine health, and operational activity &mdash; Signed in as <strong class="text-slate-200"><?= e($user['full_name']) ?></strong>
                     </p>
                 </div>
-                <div class="page-header-actions d-flex align-items-center flex-shrink-0">
+                <div class="page-header-actions d-none">
                     <div class="page-date text-slate-300 d-inline-flex align-items-center text-nowrap" style="gap: 10px;">
                         <!-- Live Status Indicator -->
                         <div class="d-inline-flex align-items-center">

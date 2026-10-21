@@ -6,6 +6,89 @@ require_once __DIR__ . '/../models/Service.php';
 
 class MachineController
 {
+    /**
+     * Unified Single Save: Atomically saves profile template, LCD lines, and Outlet configurations.
+     */
+    public function saveHardwareUnified(): void
+    {
+        csrf_verify();
+
+        $machineId = filter_input(INPUT_POST, 'machine_id', FILTER_VALIDATE_INT);
+        $template  = trim($_POST['machine_template'] ?? 'carwash');
+        $line1     = mb_substr($_POST['lcd_line1'] ?? '', 0, 20);
+        $line2     = mb_substr($_POST['lcd_line2'] ?? '', 0, 20);
+        $line3     = mb_substr($_POST['lcd_line3'] ?? '', 0, 20);
+        $line4     = mb_substr($_POST['lcd_line4'] ?? '', 0, 20);
+
+        if (!$machineId) {
+            flash('danger', 'Invalid machine specified.');
+            redirect('dashboard/machines.php');
+            return;
+        }
+
+        $ownerId = current_owner_id();
+        require_once ROOT_PATH . '/models/Machine.php';
+        $machineModel = new Machine();
+        if ($ownerId !== null && $ownerId > 0) {
+            $allowedIds = $machineModel->getMachineIdsForOwner($ownerId);
+            if (!in_array($machineId, $allowedIds, true)) {
+                flash('danger', 'Access Denied: You do not have permission to configure that machine.');
+                redirect('dashboard/machines.php');
+                return;
+            }
+        }
+
+        $db = Database::getInstance();
+        $userId = current_user()['id'] ?? null;
+        $serviceModel = new Service();
+
+        $db->beginTransaction();
+        try {
+            // 1. Update machine profile type
+            $machineModel->updateMachineType($machineId, $template);
+
+            // 2. Update LCD lines
+            $machineModel->updateLcdLines($machineId, $line1, $line2, $line3, $line4);
+
+            // 3. Update Services (Outlet 1 & Outlet 2)
+            if (isset($_POST['services']) && is_array($_POST['services'])) {
+                foreach ($_POST['services'] as $idKey => $item) {
+                    $serviceId      = filter_var($item['id'] ?? $idKey, FILTER_VALIDATE_INT);
+                    $coinValue      = filter_var($item['coin_value'] ?? 5.00, FILTER_VALIDATE_FLOAT);
+                    $serviceSeconds = filter_var($item['service_seconds'] ?? null, FILTER_VALIDATE_INT);
+                    $isEnabled      = !empty($item['is_enabled']);
+                    $serviceName    = !empty($item['name']) ? trim($item['name']) : 'Service';
+                    $serviceIcon    = !empty($item['icon']) ? trim($item['icon']) : null;
+                    $serviceType    = !empty($item['type']) ? trim($item['type']) : null;
+
+                    if ($serviceId && $serviceModel->belongsToPrimaryMachine($serviceId, $ownerId)) {
+                        $serviceModel->updateConfiguration(
+                            $serviceId,
+                            $isEnabled,
+                            $coinValue !== false ? $coinValue : 5.00,
+                            $serviceSeconds !== false ? $serviceSeconds : 120,
+                            $userId,
+                            $serviceName,
+                            $serviceIcon,
+                            $serviceType
+                        );
+                    }
+                }
+            }
+
+            $db->commit();
+            $badge = Machine::getMachineTypeBadge($template);
+            log_activity('SERVICE_CONFIG_UPDATED', "Updated machine hardware and services under {$badge['label']}.", $ownerId);
+            flash('success', "Hardware configuration saved successfully under " . e($badge['label']) . "! Display lines, outlet rates, and icons updated.");
+        } catch (\Throwable $e) {
+            $db->rollBack();
+            error_log("Failed to save unified hardware configuration: " . $e->getMessage());
+            flash('danger', 'Failed to save configuration: ' . e($e->getMessage()));
+        }
+
+        redirect('dashboard/machines.php');
+    }
+
     public function saveServiceConfiguration(): void
     {
         csrf_verify();

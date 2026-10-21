@@ -810,7 +810,7 @@ class Machine
      */
     public function updateMachineType(int $machineId, string $machineType): bool
     {
-        $allowed = ['carwash', 'air_blower', 'tire_air', 'custom'];
+        $allowed = ['carwash', 'air_blower', 'preset_1', 'preset_2', 'custom', 'tire_air'];
         if (!in_array($machineType, $allowed, true)) {
             $machineType = 'carwash';
         }
@@ -821,8 +821,8 @@ class Machine
     }
 
     /**
-     * Apply a machine configuration template (e.g. 'carwash', 'air_blower', 'tire_air', 'custom').
-     * Adapts services (Relay 1, Relay 2), icons, names, and LCD display presets.
+     * Apply a machine configuration template (e.g. 'carwash', 'air_blower', 'preset_1', 'preset_2', 'custom').
+     * Adapts services (Outlet 1, Outlet 2), icons, names, and LCD display presets.
      */
     public function applyTemplate(int $machineId, string $templateType, ?int $userId = null): bool
     {
@@ -831,7 +831,7 @@ class Machine
             return false;
         }
 
-        $allowedTemplates = ['carwash', 'air_blower', 'tire_air', 'custom'];
+        $allowedTemplates = ['carwash', 'air_blower', 'preset_1', 'preset_2', 'custom', 'tire_air'];
         if (!in_array($templateType, $allowedTemplates, true)) {
             $templateType = 'carwash';
         }
@@ -847,20 +847,52 @@ class Machine
             // 2. Fetch services for this machine
             $services = $this->getServices($machineId);
 
-            // Separate relay 1 (water key) and relay 2 (soap key)
+            // Separate relay 1 (water/outlet 1) and relay 2 (soap/outlet 2)
             $relay1 = null;
             $relay2 = null;
             foreach ($services as $s) {
-                if ($s['service_key'] === 'water' || $s['service_key'] === 'air') {
+                if ($s['service_key'] === 'water' || $s['service_key'] === 'air' || $s['service_key'] === 'outlet1') {
                     $relay1 = $s;
-                } elseif ($s['service_key'] === 'soap' || $s['service_key'] === 'blower') {
+                } elseif ($s['service_key'] === 'soap' || $s['service_key'] === 'blower' || $s['service_key'] === 'outlet2') {
                     $relay2 = $s;
                 }
             }
             if (!$relay1 && !empty($services[0])) $relay1 = $services[0];
             if (!$relay2 && !empty($services[1])) $relay2 = $services[1];
 
-            if ($templateType === 'air_blower') {
+            if ($templateType === 'preset_1') {
+                if ($relay1) {
+                    $pdo->prepare("UPDATE services SET name = 'Custom Outlet 1', type = 'air', icon = 'bi-speedometer2', is_enabled = 1, service_seconds = 120 WHERE id = :id")
+                        ->execute([':id' => $relay1['id']]);
+                }
+                if ($relay2) {
+                    $pdo->prepare("UPDATE services SET name = 'Custom Outlet 2', type = 'blower', icon = 'bi-wind', is_enabled = 1, service_seconds = 60 WHERE id = :id")
+                        ->execute([':id' => $relay2['id']]);
+                }
+                $this->updateLcdLines(
+                    $machineId,
+                    '== PRESET 1 UNIT == ',
+                    'READY FOR SERVICE!  ',
+                    'INSERT COIN FIRST!  ',
+                    'OUT1:P5 | OUT2:P5   '
+                );
+            } elseif ($templateType === 'preset_2') {
+                if ($relay1) {
+                    $pdo->prepare("UPDATE services SET name = 'Custom Outlet A', type = 'water', icon = 'bi-droplet-fill', is_enabled = 1, service_seconds = 180 WHERE id = :id")
+                        ->execute([':id' => $relay1['id']]);
+                }
+                if ($relay2) {
+                    $pdo->prepare("UPDATE services SET name = 'Custom Outlet B', type = 'soap', icon = 'bubble-logo-svg', is_enabled = 1, service_seconds = 120 WHERE id = :id")
+                        ->execute([':id' => $relay2['id']]);
+                }
+                $this->updateLcdLines(
+                    $machineId,
+                    '== PRESET 2 UNIT == ',
+                    'WELCOME CUSTOMER!   ',
+                    'INSERT COIN FIRST!  ',
+                    'OUT1:P5 | OUT2:P5   '
+                );
+            } elseif ($templateType === 'air_blower') {
                 if ($relay1) {
                     $pdo->prepare("UPDATE services SET name = 'Tire Air', type = 'air', icon = 'bi-speedometer2', is_enabled = 1, service_seconds = 120 WHERE id = :id")
                         ->execute([':id' => $relay1['id']]);
@@ -927,6 +959,22 @@ class Machine
     public static function getMachineTypeBadge(string $machineType): array
     {
         return match ($machineType) {
+            'preset_1' => [
+                'label'     => 'Preset 1',
+                'short'     => 'PRESET 1',
+                'icon'      => 'bi-sliders',
+                'color'     => 'emerald',
+                'has_tanks' => false,
+                'desc'      => 'Custom Dual Preset 1 (No tank sensors required)',
+            ],
+            'preset_2' => [
+                'label'     => 'Preset 2',
+                'short'     => 'PRESET 2',
+                'icon'      => 'bi-sliders2',
+                'color'     => 'warning',
+                'has_tanks' => false,
+                'desc'      => 'Custom Dual Preset 2 (No tank sensors required)',
+            ],
             'air_blower' => [
                 'label'     => 'Tire Air & Blower',
                 'short'     => 'AIR & BLOWER',

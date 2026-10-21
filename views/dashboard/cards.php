@@ -21,6 +21,7 @@
 <?php
 // Dynamic machine profile and service metadata
 $activeMachType = $machineInfo['machine_type'] ?? 'carwash';
+$allMachineMetrics = $allMachineMetrics ?? [];
 
 // Dynamic Service 1 metadata (Relay 1 / water key)
 $s1RawName = $waterService['name'] ?? 'Water Service';
@@ -120,125 +121,86 @@ $totalMaintCount = count($maintItems);
 </div>
 
 <!-- ============================================================
-     2. Top KPI Summary Cards (4 equal columns)
+     2. Top KPI Summary Cards (4 Interactive Button Cards Directing to Specific Panels)
      ============================================================ -->
 <div class="row g-2 g-md-3 mb-4">
 
-    <!-- Today's Revenue -->
+    <!-- Card 1 — Today's Revenue -->
     <div class="col-6 col-xl-3">
-        <div class="stat-card stat-card-accent-success">
-            <div class="stat-card-body">
-                <div class="stat-card-info">
-                    <p class="stat-card-label"><?= (!empty($fleetMetrics) && count($fleetMetrics) > 1) ? "Today's Fleet Revenue" : "Today's Revenue" ?></p>
-                    <h3 class="stat-card-value text-success">
-                        ₱<?= number_format($todayStats['total_revenue'], 2) ?>
-                    </h3>
-                    <p class="stat-card-trend">
-                        <span class="trend-badge trend-up">
-                            <i class="bi bi-calendar-event"></i> <?= (!empty($fleetMetrics) && count($fleetMetrics) > 1) ? count($fleetMetrics) . ' Machines Total' : term('todays_sales', "Today's Sales") ?>
-                        </span>
-                    </p>
-                </div>
-                <div class="stat-card-icon" style="background: rgba(34,197,94,.1); color: var(--vl-success);">
-                    <i class="bi bi-cash-stack"></i>
+        <a href="<?= BASE_URL ?>/dashboard/sales.php?date_from=<?= $today ?>&date_to=<?= $today ?>" class="admin-stat-card text-decoration-none" title="<?= term('view_sales', 'View Sales') ?>">
+            <div>
+                <div class="admin-stat-label"><?= (!empty($allMachineMetrics) && count($allMachineMetrics) > 1) ? "Total Today's Revenue" : "Today's Revenue" ?></div>
+                <div class="admin-stat-value text-white">₱<?= number_format($todayStats['total_revenue'], 2) ?></div>
+                <div class="admin-stat-secondary text-success">
+                    <i class="bi bi-calendar-event me-1"></i><?= (!empty($allMachineMetrics) && count($allMachineMetrics) > 1) ? count($allMachineMetrics) . ' Machines Total' : term('todays_sales', "Today's Sales") ?>
                 </div>
             </div>
-            <div class="stat-card-footer">
-                <a href="<?= BASE_URL ?>/dashboard/sales.php?date_from=<?= $today ?>&date_to=<?= $today ?>" class="stat-card-link text-muted">
-                    <?= term('view_sales', 'View Sales') ?> <i class="bi bi-arrow-right ms-1"></i>
-                </a>
+            <div class="admin-stat-icon" style="background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.25); color: #34d399;">
+                <i class="bi bi-cash-stack"></i>
             </div>
-        </div>
+        </a>
     </div>
 
-    <!-- Today's Transactions -->
+    <!-- Card 2 — Today's Transactions -->
     <div class="col-6 col-xl-3">
-        <div class="stat-card stat-card-accent-primary">
-            <div class="stat-card-body">
-                <div class="stat-card-info">
-                    <p class="stat-card-label">Today's Transactions</p>
-                    <h3 class="stat-card-value text-primary-vl">
-                        <?= number_format($todayStats['total_transactions']) ?>
-                    </h3>
-                    <p class="stat-card-trend">
-                        <span class="trend-badge trend-neutral">
-                            <i class="bi bi-receipt"></i> Completed
-                        </span>
-                        <span class="text-muted d-none d-sm-inline">Avg. ₱<?= number_format($todayStats['avg_transaction_value'], 2) ?></span>
-                    </p>
-                </div>
-                <div class="stat-card-icon" style="background: rgba(14,165,233,.1); color: var(--vl-primary);">
-                    <i class="bi bi-receipt-cutoff"></i>
+        <a href="<?= BASE_URL ?>/dashboard/sales.php" class="admin-stat-card text-decoration-none" title="<?= term('view_history', 'View History') ?>">
+            <div>
+                <div class="admin-stat-label">Today's Transactions</div>
+                <div class="admin-stat-value text-white"><?= number_format($todayStats['total_transactions']) ?></div>
+                <div class="admin-stat-secondary">
+                    <span class="text-info"><i class="bi bi-receipt me-1"></i>Completed</span>
+                    <span class="text-slate-500 mx-1">&bull;</span>
+                    <span class="text-slate-400">Avg. ₱<?= number_format($todayStats['avg_transaction_value'], 2) ?></span>
                 </div>
             </div>
-            <div class="stat-card-footer">
-                <a href="<?= BASE_URL ?>/dashboard/sales.php" class="stat-card-link text-muted">
-                    <?= term('view_history', 'View History') ?> <i class="bi bi-arrow-right ms-1"></i>
-                </a>
+            <div class="admin-stat-icon" style="background: rgba(14, 165, 233, 0.12); border: 1px solid rgba(14, 165, 233, 0.25); color: #38bdf8;">
+                <i class="bi bi-receipt-cutoff"></i>
             </div>
-        </div>
+        </a>
     </div>
 
-    <!-- Service 1 Sales -->
+    <!-- Card 3 — Water Sales -->
     <div class="col-6 col-xl-3">
-        <div class="stat-card stat-card-accent-info">
-            <div class="stat-card-body">
-                <div class="stat-card-info">
-                    <p class="stat-card-label"><?= e($s1Title) ?> Sales</p>
-                    <h3 class="stat-card-value text-info">
-                        ₱<?= number_format($todayStats['water_revenue'], 2) ?>
-                    </h3>
-                    <p class="stat-card-trend">
-                        <span class="trend-badge" style="background: rgba(56,189,248,.15); color: #38bdf8;">
-                            <i class="bi <?= $s1Icon ?>"></i> <?= $todayStats['water_share'] ?>% share
-                        </span>
-                    </p>
-                </div>
-                <div class="stat-card-icon" style="background: rgba(56,189,248,.1); color: var(--vl-info);">
-                    <i class="bi <?= $s1Icon ?>"></i>
+        <a href="<?= BASE_URL ?>/dashboard/archive.php?service=water" class="admin-stat-card text-decoration-none" title="<?= e($s1Title) ?> Sales History">
+            <div>
+                <div class="admin-stat-label"><?= e($s1Title) ?> Sales</div>
+                <div class="admin-stat-value text-white">₱<?= number_format($todayStats['water_revenue'], 2) ?></div>
+                <div class="admin-stat-secondary">
+                    <span style="color: #38bdf8;"><i class="bi <?= $s1Icon ?> me-1"></i><?= $todayStats['water_share'] ?>% Share</span>
+                    <span class="text-slate-500 mx-1">&bull;</span>
+                    <span class="text-slate-400"><?= number_format($todayStats['water_count']) ?> txns</span>
                 </div>
             </div>
-            <div class="stat-card-footer">
-                <a href="<?= BASE_URL ?>/dashboard/sales.php?service=water" class="stat-card-link text-muted">
-                    <?= number_format($todayStats['water_count']) ?> transactions <i class="bi bi-arrow-right ms-1"></i>
-                </a>
+            <div class="admin-stat-icon" style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); color: #38bdf8;">
+                <i class="bi <?= $s1Icon ?>"></i>
             </div>
-        </div>
+        </a>
     </div>
 
-    <!-- Service 2 Sales -->
+    <!-- Card 4 — Soap Sales -->
     <div class="col-6 col-xl-3">
-        <div class="stat-card stat-card-accent-warning">
-            <div class="stat-card-body">
-                <div class="stat-card-info">
-                    <p class="stat-card-label"><?= e($s2Title) ?> Sales</p>
-                    <h3 class="stat-card-value text-warning">
-                        ₱<?= number_format($todayStats['soap_revenue'], 2) ?>
-                    </h3>
-                    <p class="stat-card-trend">
-                        <span class="trend-badge" style="background: rgba(234,179,8,.15); color: #fbbf24;">
-                            <i class="bi <?= $s2Icon ?>"></i> <?= $todayStats['soap_share'] ?>% share
-                        </span>
-                    </p>
-                </div>
-                <div class="stat-card-icon" style="background: rgba(245,158,11,.1); color: var(--vl-warning);">
-                    <i class="bi <?= $s2Icon ?>"></i>
+        <a href="<?= BASE_URL ?>/dashboard/archive.php?service=soap" class="admin-stat-card text-decoration-none" title="<?= e($s2Title) ?> Sales History">
+            <div>
+                <div class="admin-stat-label"><?= e($s2Title) ?> Sales</div>
+                <div class="admin-stat-value text-white">₱<?= number_format($todayStats['soap_revenue'], 2) ?></div>
+                <div class="admin-stat-secondary">
+                    <span class="text-warning"><i class="bi <?= $s2Icon ?> me-1"></i><?= $todayStats['soap_share'] ?>% Share</span>
+                    <span class="text-slate-500 mx-1">&bull;</span>
+                    <span class="text-slate-400"><?= number_format($todayStats['soap_count']) ?> txns</span>
                 </div>
             </div>
-            <div class="stat-card-footer">
-                <a href="<?= BASE_URL ?>/dashboard/sales.php?service=soap" class="stat-card-link text-muted">
-                    <?= number_format($todayStats['soap_count']) ?> transactions <i class="bi bi-arrow-right ms-1"></i>
-                </a>
+            <div class="admin-stat-icon" style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.25); color: #fbbf24;">
+                <i class="bi <?= $s2Icon ?>"></i>
             </div>
-        </div>
+        </a>
     </div>
 
 </div>
 
 <!-- ============================================================
-     2.1 Fleet Machine Financial Breakdown (Multi-Machine Fleet)
+     2.1 Machine Group Financial Breakdown (Multi-Machine Group)
      ============================================================ -->
-<?php if (!empty($fleetMetrics) && count($fleetMetrics) > 1): ?>
+<?php if (!empty($allMachineMetrics) && count($allMachineMetrics) > 1): ?>
 <div class="report-section-card mb-4 p-3 rounded-3" style="border: 1px solid rgba(56, 189, 248, 0.2); background: rgba(15, 23, 42, 0.75);">
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3 pb-2" style="border-bottom: 1px solid var(--vl-border);">
         <div class="d-flex align-items-center gap-2">
@@ -247,9 +209,9 @@ $totalMaintCount = count($maintItems);
             </div>
             <div>
                 <h6 class="mb-0 fw-bold text-white d-flex align-items-center gap-2 flex-wrap">
-                    Fleet Financial Breakdown (Today)
+                    Connected Machines Financial Breakdown (Today)
                     <span class="badge bg-info-subtle text-info border border-info border-opacity-25 rounded-pill" style="font-size: 0.7rem;">
-                        <?= count($fleetMetrics) ?> Machines &bull; Total ₱<?= number_format($todayStats['total_revenue'], 2) ?>
+                        <?= count($allMachineMetrics) ?> Machines &bull; Total ₱<?= number_format($todayStats['total_revenue'], 2) ?>
                     </span>
                 </h6>
                 <span class="text-muted small">Individual earnings from each vending unit contributing to your main total.</span>
@@ -263,7 +225,7 @@ $totalMaintCount = count($maintItems);
     </div>
 
     <div class="row g-3">
-        <?php foreach ($fleetMetrics as $fItem): 
+        <?php foreach ($allMachineMetrics as $fItem): 
             $fRev = (float)$fItem['period_revenue'];
             $fTx  = (int)$fItem['period_transactions'];
             $fShare = ($todayStats['total_revenue'] > 0) ? round(($fRev / $todayStats['total_revenue']) * 100, 1) : 0;
@@ -271,7 +233,7 @@ $totalMaintCount = count($maintItems);
             $fStat = $fItem['status'] ?? 'offline';
             $fDot = ($fStat === 'online') ? 'status-online' : 'status-offline';
         ?>
-        <div class="col-12 col-md-6 col-xl-<?= count($fleetMetrics) <= 2 ? '6' : (count($fleetMetrics) <= 3 ? '4' : '3') ?>">
+        <div class="col-12 col-md-6 col-xl-<?= count($allMachineMetrics) <= 2 ? '6' : (count($allMachineMetrics) <= 3 ? '4' : '3') ?>">
             <div class="p-3 rounded-3 h-100 d-flex flex-column justify-content-between position-relative" 
                  style="background: rgba(15, 23, 42, 0.6); border: 1px solid <?= $fActive ? 'rgba(56, 189, 248, 0.45)' : 'var(--vl-border)' ?>; <?= $fActive ? 'box-shadow: 0 0 15px rgba(56, 189, 248, 0.12);' : '' ?>">
                 
@@ -347,7 +309,7 @@ $totalMaintCount = count($maintItems);
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3 pb-2 border-bottom border-secondary border-opacity-10">
         <div>
             <h4 class="mb-1 fw-bold text-white fs-5 d-flex align-items-center gap-2">
-                <span class="vendoai-robot-badge">🤖</span>
+                <span class="vendoai-robot-badge"><i class="bi bi-robot text-primary"></i></span>
                 <?= term('vendoai_insights', 'VendoAI Insights') ?>
             </h4>
             <span class="text-muted small">Smart predictions &amp; daily tips by Google Gemini 3.8</span>
@@ -659,138 +621,229 @@ $totalMaintCount = count($maintItems);
 <?php endif; ?>
 
 <!-- Machine & Controller Status -->
-<div class="report-section-card mb-4 d-flex flex-column">
-    <div class="breakdown-header">
-        <div>
-            <h5 class="panel-title mb-1">
-                <i class="bi bi-hdd-network me-2 text-primary-vl"></i>Machine &amp; Controller Status
-            </h5>
-            <p class="text-muted small mb-0">
-                <?= e($machineInfo['name'] ?? 'VendoLink Machine Unit') ?> &bull; <?= e($machineInfo['machine_code'] ?? 'Hardware Unit') ?>
-            </p>
+<div class="report-section-card mb-4 d-flex flex-column" id="machineCircuitRackCard">
+    <!-- Header: Controller Breadcrumb & Live IP Badge -->
+    <div class="breakdown-header d-flex justify-content-between align-items-center flex-wrap gap-2 pb-3 mb-3 border-bottom border-secondary border-opacity-25">
+        <div class="d-flex align-items-center gap-2.5">
+            <div id="rackChipIcon" class="p-2 rounded-3 d-flex align-items-center justify-content-center text-info" style="background: rgba(14,165,233,.12); border: 1px solid rgba(14,165,233,.25);">
+                <i class="bi bi-motherboard fs-5"></i>
+            </div>
+            <div>
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="panel-title mb-0 fw-bold text-white">Controller Rack Unit</h5>
+                    <span class="badge bg-dark text-slate-300 border border-secondary border-opacity-25 font-monospace" style="font-size: 0.7rem;">VendoCore</span>
+                </div>
+                <span class="text-muted small font-monospace d-block mt-0.5">ESP32-WROOM-32 &bull; <?= e($machineInfo['machine_code'] ?? 'Unit 01') ?></span>
+            </div>
         </div>
-        <span class="vl-badge-machine font-monospace">
-            <i class="bi bi-cpu me-1"></i>VendoCore ESP32
-        </span>
+        <div id="rackControllerBadge" class="d-flex align-items-center">
+            <?php $mStatus = $machineInfo['calculated_status'] ?? 'offline'; ?>
+            <?php if ($mStatus === 'online'): ?>
+                <span class="badge font-monospace" style="background: rgba(16,185,129,.15); border: 1px solid rgba(16,185,129,.35); color: #34d399;">
+                    <i class="bi bi-circle-fill me-1" style="font-size: 6px; color: #10b981;"></i>Online &bull; <?= e($machineInfo['ip_address'] ?? '192.168.x.x') ?>
+                </span>
+            <?php else: ?>
+                <span class="badge font-monospace" style="background: rgba(15,23,42,.8); border: 1px solid rgba(148,163,184,.3); color: #94a3b8;">
+                    <i class="bi bi-circle-fill me-1" style="font-size: 6px; color: #64748b;"></i>Offline &bull; Disconnected
+                </span>
+            <?php endif; ?>
+        </div>
     </div>
 
-        <?php
-        $mStatus = $machineInfo['calculated_status'] ?? 'offline';
-        ?>
-        <?php if ($mStatus === 'online'): ?>
-        <div class="runtime-notice-box mb-3 d-flex align-items-start gap-3 p-3 rounded-3" style="background: rgba(34,197,94,.12) !important; border: 1px solid rgba(34,197,94,.35) !important;">
-            <i class="bi bi-wifi text-success fs-3 flex-shrink-0 mt-1"></i>
-            <div>
-                <strong class="text-success d-block mb-1 fs-6">✓ ESP32 Connected &amp; Online</strong>
-                <div class="text-light small">
-                    <span>IP: <strong class="font-monospace text-cyan" style="color: #38bdf8;"><?= e($machineInfo['ip_address'] ?? '192.168.x.x') ?></strong></span> &bull;
-                    <span>Firmware: <strong class="font-monospace text-light">v<?= e($machineInfo['firmware_version'] ?? '1.0.0') ?></strong></span> &bull;
-                    <span><?= term('last_seen') ?>: <strong class="text-white"><?= time_ago($machineInfo['last_seen']) ?></strong></span>
+    <!-- Dual Outlet Cards: Side-by-side Outlet 1 & Outlet 2 -->
+    <div class="row g-2 mb-3">
+        <!-- Outlet 1 Card (GPIO 25) -->
+        <div class="col-6">
+            <div id="rackCardOutlet1" class="p-3 rounded-3" style="background: rgba(15,23,42,.6); border: 1px solid rgba(56,189,248,.25); transition: all 0.3s ease; <?= $mStatus !== 'online' ? 'opacity: 0.55;' : '' ?>">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <div class="d-flex align-items-center gap-1.5 text-light fw-semibold small">
+                        <span id="rackDotOutlet1" class="rounded-circle d-inline-block" style="width: 8px; height: 8px; background: <?= $mStatus === 'online' ? '#38bdf8' : '#64748b' ?>;"></span>
+                        <span>Outlet 1</span>
+                    </div>
+                    <span class="badge font-monospace" style="background: rgba(6,182,212,.15); border: 1px solid rgba(6,182,212,.35); color: #22d3ee; font-size: 0.7rem;">
+                        <i class="bi bi-plug-fill me-0.5"></i>GPIO 25 &bull; Outlet 1
+                    </span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary border-opacity-10">
+                    <span class="text-muted small">Power State:</span>
+                    <div id="rackStateOutlet1">
+                        <?php if ($mStatus === 'online'): ?>
+                            <span class="font-monospace text-slate-300 small">STANDBY (IDLE)</span>
+                        <?php else: ?>
+                            <span class="font-monospace text-muted small">DE-ENERGIZED (OFF)</span>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
         </div>
-        <?php elseif ($mStatus === 'stale'): ?>
-        <div class="runtime-notice-box mb-3 d-flex align-items-start gap-3 p-3 rounded-3" style="background: rgba(245,158,11,.12) !important; border: 1px solid rgba(245,158,11,.35) !important;">
-            <i class="bi bi-exclamation-triangle-fill text-warning fs-3 flex-shrink-0 mt-1"></i>
-            <div>
-                <strong class="text-warning d-block mb-1 fs-6">⚠️ ESP32 Connection Stale</strong>
-                <div class="text-light small">
-                    <?= term('last_seen') ?> <strong class="text-white"><?= time_ago($machineInfo['last_seen']) ?></strong>. Connection may be intermittent.
+
+        <!-- Outlet 2 Card (GPIO 33) -->
+        <div class="col-6">
+            <div id="rackCardOutlet2" class="p-3 rounded-3" style="background: rgba(15,23,42,.6); border: 1px solid rgba(245,158,11,.25); transition: all 0.3s ease; <?= $mStatus !== 'online' ? 'opacity: 0.55;' : '' ?>">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <div class="d-flex align-items-center gap-1.5 text-light fw-semibold small">
+                        <span id="rackDotOutlet2" class="rounded-circle d-inline-block" style="width: 8px; height: 8px; background: <?= $mStatus === 'online' ? '#fbbf24' : '#64748b' ?>;"></span>
+                        <span>Outlet 2</span>
+                    </div>
+                    <span class="badge font-monospace" style="background: rgba(245,158,11,.15); border: 1px solid rgba(245,158,11,.35); color: #fbbf24; font-size: 0.7rem;">
+                        <i class="bi bi-plug-fill me-0.5"></i>GPIO 33 &bull; Outlet 2
+                    </span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary border-opacity-10">
+                    <span class="text-muted small">Power State:</span>
+                    <div id="rackStateOutlet2">
+                        <?php if ($mStatus === 'online'): ?>
+                            <span class="font-monospace text-slate-300 small">STANDBY (IDLE)</span>
+                        <?php else: ?>
+                            <span class="font-monospace text-muted small">DE-ENERGIZED (OFF)</span>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
         </div>
-        <?php else: ?>
-        <div class="runtime-notice-box mb-3 d-flex align-items-start gap-3 p-3 rounded-3" style="background: rgba(15,23,42,.6) !important; border: 1px solid var(--vl-border) !important;">
-            <i class="bi bi-broadcast text-info fs-4 flex-shrink-0 mt-1"></i>
+    </div>
+
+    <!-- Integrated Coin Validator Strip -->
+    <?php
+    $waterSvc        = $servicesByKey['water'] ?? null;
+    $soapSvc         = $servicesByKey['soap'] ?? null;
+    $waterEnabled    = !empty($waterSvc['is_enabled']);
+    $soapEnabled     = !empty($soapSvc['is_enabled']);
+    $waterTankLow    = !empty($machineInfo['water_tank_low']);
+    if ($activeMachType === 'carwash') {
+        $coinSlotOn  = ($mStatus === 'online') && $waterEnabled && !$waterTankLow;
+    } else {
+        $coinSlotOn  = ($mStatus === 'online') && ($waterEnabled || $soapEnabled);
+    }
+    ?>
+    <div id="rackCoinCard" class="mb-3 p-3 rounded-3 d-flex align-items-center justify-content-between" style="background: rgba(15,23,42,.6); border: 1px solid var(--vl-border); <?= $mStatus !== 'online' ? 'opacity: 0.6;' : '' ?>">
+        <div class="d-flex align-items-center gap-2.5">
+            <i id="rackCoinIcon" class="bi bi-cash-coin fs-5" style="color: <?= ($mStatus === 'online' && $coinSlotOn) ? '#22c55e' : '#64748b' ?>;"></i>
             <div>
-                <strong class="text-light d-block mb-1 fs-6">Awaiting ESP32 Connection</strong>
-                <p class="text-muted small mb-0">
-                    The physical ESP32 microcontroller is not currently sending active heartbeats to the local server.
-                    <?= !empty($machineInfo['last_seen']) ? term('last_seen') . ': ' . time_ago($machineInfo['last_seen']) : 'No heartbeats recorded yet.' ?>
+                <span class="text-light small fw-medium">Coin Validator Line &bull; GPIO 14</span>
+                <p id="rackCoinSubtext" class="text-muted font-monospace mb-0" style="font-size: 0.72rem;">
+                    <?php if ($mStatus === 'online'): ?>
+                        <?= $coinSlotOn ? 'HW-482 relay closed &bull; 12V coin acceptance active' : '12V supply cut off' ?>
+                    <?php else: ?>
+                        No controller heartbeat &bull; 12V coin power disconnected
+                    <?php endif; ?>
                 </p>
             </div>
         </div>
-        <?php endif; ?>
+        <span id="rackCoinBadge" class="badge font-monospace" style="background: <?= ($mStatus === 'online' && $coinSlotOn) ? 'rgba(34,197,94,.15)' : 'rgba(15,23,42,.8)' ?>; border: 1px solid <?= ($mStatus === 'online' && $coinSlotOn) ? 'rgba(34,197,94,.4)' : 'rgba(148,163,184,.3)' ?>; color: <?= ($mStatus === 'online' && $coinSlotOn) ? '#22c55e' : '#94a3b8' ?>;">
+            <?= ($mStatus === 'online' && $coinSlotOn) ? '12V Powered' : 'OFF' ?>
+        </span>
+    </div>
 
-        <!-- Live Service Activity Rows -->
-        <div class="row g-2 mb-3">
-            <div class="col-6">
-                <div class="p-2 rounded" style="background: rgba(15,23,42,.6); border: 1px solid var(--vl-border);">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <span class="text-muted small"><i class="bi <?= $s1Icon ?> text-info me-1"></i><?= e($s1Title) ?></span>
-                        <span class="badge bg-dark border border-secondary text-info">
-                            <i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i>IDLE
-                        </span>
-                    </div>
-                </div>
-            </div>
-            <div class="col-6">
-                <div class="p-2 rounded" style="background: rgba(15,23,42,.6); border: 1px solid var(--vl-border);">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <span class="text-muted small"><i class="bi <?= $s2Icon ?> text-warning me-1"></i><?= e($s2Title) ?></span>
-                        <span class="badge bg-dark border border-secondary text-warning">
-                            <i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i>IDLE
-                        </span>
-                    </div>
-                </div>
-            </div>
-            <?php
-            // Coin slot power logic
-            $waterSvc        = $servicesByKey['water'] ?? null;
-            $soapSvc         = $servicesByKey['soap'] ?? null;
-            $waterEnabled    = !empty($waterSvc['is_enabled']);
-            $soapEnabled     = !empty($soapSvc['is_enabled']);
-            $waterTankLow    = !empty($machineInfo['water_tank_low']);
-            if ($activeMachType === 'carwash') {
-                $coinSlotOn  = $waterEnabled && !$waterTankLow;
-            } else {
-                $coinSlotOn  = ($waterEnabled || $soapEnabled);
-            }
-            ?>
-            <div class="col-12">
-                <div class="p-2 rounded" style="background: rgba(15,23,42,.6); border: 1px solid var(--vl-border);">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <span class="text-muted small">
-                            <i class="bi bi-plug-fill me-1" style="color: <?= $coinSlotOn ? '#22c55e' : '#ef4444'; ?>;"></i>
-                            Coin Slot (GPIO 14)
-                        </span>
-                        <?php if ($coinSlotOn): ?>
-                        <span class="badge" style="background: rgba(34,197,94,.15); color: #22c55e; border: 1px solid rgba(34,197,94,.4);">
-                            <i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i>🟢 Powered
-                        </span>
-                        <?php else: ?>
-                        <span class="badge" style="background: rgba(239,68,68,.15); color: #ef4444; border: 1px solid rgba(239,68,68,.4);">
-                            <i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i>🔴 Disabled
-                        </span>
-                        <?php endif; ?>
-                    </div>
-                    <div class="text-muted mt-1" style="font-size: 0.72rem;">
-                        <?php if ($coinSlotOn): ?>
-                            HW-482 relay de-energized — NC closed — 12V connected
-                        <?php elseif ($activeMachType === 'carwash' && $waterTankLow): ?>
-                            Water tank empty — relay energized — 12V cut off
-                        <?php else: ?>
-                            Services disabled — relay energized — 12V cut off
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
+    <!-- Footer Strip: Today's Hardware Runtime & Action Button -->
+    <div class="mt-auto pt-2 d-flex justify-content-between align-items-center flex-wrap gap-2" style="border-top: 1px solid var(--vl-border);">
+        <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-clock-history text-muted"></i>
+            <span class="text-muted small">Today's Hardware Runtime:</span>
+            <strong id="rackRuntimeText" class="font-monospace text-white small">
+                <?= $mStatus === 'online' ? ($todayStats['formatted_runtime'] ?? '0m 00s') : 'Unavailable (Awaiting ESP32)' ?>
+            </strong>
         </div>
-
-        <!-- Runtime Comparison -->
-        <div class="mt-auto pt-2 d-flex justify-content-between align-items-center flex-wrap gap-2"
-             style="border-top: 1px solid var(--vl-border);">
-            <div>
-                <span class="text-muted small d-block">Today's Hardware Runtime:</span>
-                <span class="vl-badge-machine font-monospace">
-                    Unavailable (Awaiting ESP32)
-                </span>
-            </div>
-            <a href="<?= BASE_URL ?>/dashboard/machines.php" class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-hdd-stack me-1"></i><?= term('view_machine', 'View Machine') ?>
-            </a>
-        </div>
+        <a href="<?= BASE_URL ?>/dashboard/machines.php" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-gear me-1"></i><?= term('view_machine', 'View Machine') ?>
+        </a>
+    </div>
 </div>
+
+<!-- Real-time Poller for Dashboard Machine Status -->
+<script>
+(function() {
+    function pollMachineTelemetry() {
+        fetch('<?= BASE_URL ?>/api/machine_status.php')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data || !data.success) return;
+                var ctrlBadge = document.getElementById('rackControllerBadge');
+                var chipIcon = document.getElementById('rackChipIcon');
+                var o1Card = document.getElementById('rackCardOutlet1');
+                var o1Dot = document.getElementById('rackDotOutlet1');
+                var o1State = document.getElementById('rackStateOutlet1');
+                var o2Card = document.getElementById('rackCardOutlet2');
+                var o2Dot = document.getElementById('rackDotOutlet2');
+                var o2State = document.getElementById('rackStateOutlet2');
+                var coinCard = document.getElementById('rackCoinCard');
+                var coinIcon = document.getElementById('rackCoinIcon');
+                var coinSubtext = document.getElementById('rackCoinSubtext');
+                var coinBadge = document.getElementById('rackCoinBadge');
+                var runtimeText = document.getElementById('rackRuntimeText');
+
+                if (!data.is_connected) {
+                    if (chipIcon) chipIcon.style.color = '#64748b';
+                    if (ctrlBadge) ctrlBadge.innerHTML = '<span class="badge font-monospace" style="background: rgba(15,23,42,.8); border: 1px solid rgba(148,163,184,.3); color: #94a3b8;"><i class="bi bi-circle-fill me-1" style="font-size: 6px; color: #64748b;"></i>Offline &bull; Disconnected</span>';
+                    if (o1Card) o1Card.style.opacity = '0.55';
+                    if (o1Dot) o1Dot.style.background = '#64748b';
+                    if (o1State) o1State.innerHTML = '<span class="font-monospace text-muted small">DE-ENERGIZED (OFF)</span>';
+                    if (o2Card) o2Card.style.opacity = '0.55';
+                    if (o2Dot) o2Dot.style.background = '#64748b';
+                    if (o2State) o2State.innerHTML = '<span class="font-monospace text-muted small">DE-ENERGIZED (OFF)</span>';
+                    if (coinCard) coinCard.style.opacity = '0.6';
+                    if (coinIcon) coinIcon.style.color = '#64748b';
+                    if (coinSubtext) coinSubtext.textContent = 'No controller heartbeat \u2022 12V coin power disconnected';
+                    if (coinBadge) {
+                        coinBadge.style = 'background: rgba(15,23,42,.8); border: 1px solid rgba(148,163,184,.3); color: #94a3b8;';
+                        coinBadge.textContent = 'OFF';
+                    }
+                    if (runtimeText) runtimeText.textContent = 'Unavailable (Awaiting ESP32)';
+                } else {
+                    if (chipIcon) chipIcon.style.color = '#38bdf8';
+                    if (data.is_dispensing) {
+                        if (ctrlBadge) ctrlBadge.innerHTML = '<span class="badge font-monospace" style="background: rgba(6,182,212,.15); border: 1px solid rgba(6,182,212,.4); color: #22d3ee;"><i class="bi bi-circle-fill me-1" style="font-size: 6px; color: #06b6d4;"></i>Dispensing Active</span>';
+                    } else {
+                        if (ctrlBadge) ctrlBadge.innerHTML = '<span class="badge font-monospace" style="background: rgba(16,185,129,.15); border: 1px solid rgba(16,185,129,.35); color: #34d399;"><i class="bi bi-circle-fill me-1" style="font-size: 6px; color: #10b981;"></i>Online &bull; ' + (data.ip_address || '192.168.x.x') + '</span>';
+                    }
+
+                    if (o1Card) o1Card.style.opacity = '1';
+                    if (data.outlet1 && data.outlet1.is_running) {
+                        if (o1Dot) o1Dot.style.background = '#22d3ee';
+                        if (o1State) o1State.innerHTML = '<span class="font-monospace text-info fw-bold small"><i class="bi bi-activity me-1"></i>RUNNING ' + data.outlet1.remaining_clock + '</span>';
+                    } else {
+                        if (o1Dot) o1Dot.style.background = '#38bdf8';
+                        if (o1State) o1State.innerHTML = '<span class="font-monospace text-slate-300 small">STANDBY (IDLE)</span>';
+                    }
+
+                    if (o2Card) o2Card.style.opacity = '1';
+                    if (data.outlet2 && data.outlet2.is_running) {
+                        if (o2Dot) o2Dot.style.background = '#fbbf24';
+                        if (o2State) o2State.innerHTML = '<span class="font-monospace text-warning fw-bold small"><i class="bi bi-activity me-1"></i>RUNNING ' + data.outlet2.remaining_clock + '</span>';
+                    } else {
+                        if (o2Dot) o2Dot.style.background = '#fbbf24';
+                        if (o2State) o2State.innerHTML = '<span class="font-monospace text-slate-300 small">STANDBY (IDLE)</span>';
+                    }
+
+                    if (coinCard) coinCard.style.opacity = '1';
+                    if (data.coin_slot && data.coin_slot.powered) {
+                        if (coinIcon) coinIcon.style.color = '#22c55e';
+                        if (coinSubtext) coinSubtext.textContent = data.coin_slot.subtext;
+                        if (coinBadge) {
+                            coinBadge.style = 'background: rgba(34,197,94,.15); border: 1px solid rgba(34,197,94,.4); color: #22c55e;';
+                            coinBadge.textContent = '12V Powered';
+                        }
+                    } else {
+                        if (coinIcon) coinIcon.style.color = '#ef4444';
+                        if (coinSubtext) coinSubtext.textContent = (data.coin_slot && data.coin_slot.subtext) ? data.coin_slot.subtext : '12V supply cut off';
+                        if (coinBadge) {
+                            coinBadge.style = 'background: rgba(239,68,68,.15); border: 1px solid rgba(239,68,68,.4); color: #ef4444;';
+                            coinBadge.textContent = 'Disabled';
+                        }
+                    }
+
+                    if (runtimeText && data.runtime) {
+                        runtimeText.textContent = data.runtime.today_formatted;
+                    }
+                }
+            })
+            .catch(function(err) {
+                // Silently handle polling errors
+            });
+    }
+    setInterval(pollMachineTelemetry, 3000);
+})();
+</script>
 
 <!-- ============================================================
      5. Transaction Records — Full Width (5-Item Quick Preview)

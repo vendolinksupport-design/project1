@@ -12,7 +12,7 @@ class Service
         $this->db = Database::getInstance();
     }
 
-    public function updateConfiguration(int $serviceId, bool $isEnabled, float $coinValue, int $serviceSeconds, ?int $userId = null, ?string $name = null): bool
+    public function updateConfiguration(int $serviceId, bool $isEnabled, float $coinValue, int $serviceSeconds, ?int $userId = null, ?string $name = null, ?string $icon = null, ?string $type = null): bool
     {
         $current = $this->findById($serviceId);
         if ($current) {
@@ -47,15 +47,23 @@ class Service
             ':id'              => $serviceId,
         ];
 
-        $nameSql = '';
+        $extraSql = '';
         if ($name !== null && trim($name) !== '') {
-            $nameSql = ', name = :name';
+            $extraSql .= ', name = :name';
             $params[':name'] = trim($name);
+        }
+        if ($icon !== null && trim($icon) !== '') {
+            $extraSql .= ', icon = :icon';
+            $params[':icon'] = trim($icon);
+        }
+        if ($type !== null && trim($type) !== '') {
+            $extraSql .= ', type = :type';
+            $params[':type'] = trim($type);
         }
 
         return $this->db->query(
             "UPDATE services
-             SET is_enabled = :is_enabled, coin_value = :coin_value, service_seconds = :service_seconds {$nameSql}
+             SET is_enabled = :is_enabled, coin_value = :coin_value, service_seconds = :service_seconds {$extraSql}
              WHERE id = :id",
             $params
         )->rowCount() > 0;

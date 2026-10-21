@@ -1,11 +1,11 @@
 'use strict';
 
 document.addEventListener('DOMContentLoaded', function () {
-    const forms = document.querySelectorAll('.service-config-card, #unifiedServiceForm');
+    const forms = document.querySelectorAll('.service-config-card, #unifiedServiceForm, #unifiedHardwareForm');
     forms.forEach(function (form) {
         const state = form.querySelector('.save-state');
-        const submit = form.querySelector('.btn-save-config');
-        const trackedInputs = form.querySelectorAll('input[type="checkbox"], input[name*="is_enabled"], input[name*="service_seconds"], input[name="service_seconds"], input[name*="coin_value"], input[name="coin_value"]');
+        const submit = form.querySelector('.btn-save-config, #unifiedMasterSaveBtn');
+        const trackedInputs = form.querySelectorAll('input[name], select[name], textarea[name]');
         const original = Array.from(trackedInputs, function (input) {
             return input.type === 'checkbox' ? String(input.checked) : input.value;
         });
@@ -125,12 +125,19 @@ document.addEventListener('DOMContentLoaded', function () {
             if (input) render(Number(input.value));
         });
 
-        trackedInputs.forEach(function (input) { input.addEventListener('change', updateSaveState); });
+        trackedInputs.forEach(function (input) {
+            input.addEventListener('change', updateSaveState);
+            input.addEventListener('input', updateSaveState);
+        });
 
         form.addEventListener('submit', function (event) {
             if (!hasChanges()) {
                 event.preventDefault();
-                if (window.VendoLink) VendoLink.toast('No configuration changes to save.', 'info');
+                if (window.VendoLink && typeof VendoLink.toast === 'function') {
+                    if (!document.querySelector('.vendolink-toast, .toast.show')) {
+                        VendoLink.toast('No configuration changes to save.', 'info');
+                    }
+                }
                 return;
             }
 

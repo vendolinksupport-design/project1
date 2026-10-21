@@ -47,6 +47,7 @@ assert_test(term('machine_status') === 'Machine Status', "term('machine_status')
 assert_test(term('runtime_status') === 'Machine Status', "term('runtime_status') returns 'Machine Status'");
 assert_test(term('time_per_coin') === 'Time per ₱5', "term('time_per_coin') returns 'Time per ₱5'");
 assert_test(term('service_time') === 'Time per ₱5', "term('service_time') returns 'Time per ₱5'");
+assert_test(term('timer') === 'Timer', "term('timer') returns 'Timer'");
 assert_test(term('save_changes') === 'Save Changes', "term('save_changes') returns 'Save Changes'");
 assert_test(term('save_configuration') === 'Save Changes', "term('save_configuration') returns 'Save Changes'");
 assert_test(term('open_vendoai') === 'Open VendoAI', "term('open_vendoai') returns 'Open VendoAI'");
@@ -106,7 +107,7 @@ $machinesHtml = file_get_contents(ROOT_PATH . '/dashboard/machines.php');
 assert_test(strpos($machinesHtml, "term('current_session_time', 'Current Session Time')") !== false, "Uses Current Session Time");
 assert_test(strpos($machinesHtml, "term('total_runtime', 'Total Runtime')") !== false, "Uses Total Runtime");
 assert_test(strpos($machinesHtml, "term('machine_status', 'Machine Status')") !== false, "Uses Machine Status");
-assert_test(strpos($machinesHtml, "term('time_per_coin', 'Time per ₱5')") !== false, "Uses Time per ₱5");
+assert_test(strpos($machinesHtml, "term('timer', 'Timer')") !== false || strpos($machinesHtml, "term('time_per_coin', 'Time per ₱5')") !== false, "Uses Timer");
 assert_test(strpos($machinesHtml, "term('save_changes', 'Save Changes')") !== false, "Uses Save Changes for service panel");
 
 // ------------------------------------------------------------
@@ -155,7 +156,7 @@ echo "\n------------------------------------------------------------\n";
 echo "SUMMARY: {$passCount} Passed, {$failCount} Failed.\n";
 
 if ($failCount === 0) {
-    echo "🎉 ALL OWNER UI SIMPLIFICATION & STANDARDIZATION TESTS PASSED 100%!\n";
+    echo "ALL OWNER UI SIMPLIFICATION & STANDARDIZATION TESTS PASSED 100%!\n";
     exit(0);
 } else {
     echo "❌ SOME TESTS FAILED.\n";

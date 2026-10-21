@@ -149,4 +149,4 @@ if ($badgeCw['has_tanks'] !== true || $badgeCw['icon'] !== 'bi-droplet-half') {
 }
 echo "  [PASS] Machine type badges and properties verified.\n";
 
-echo "\n🎉 ALL MACHINE PROFILE TEMPLATE TESTS PASSED 100% SUCCESSFULLY!\n";
+echo "\nALL MACHINE PROFILE TEMPLATE TESTS PASSED 100% SUCCESSFULLY!\n";

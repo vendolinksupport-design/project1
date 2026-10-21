@@ -577,7 +577,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // --- ADD REMINDER MODAL LOGIC ---
     const modalForm           = document.getElementById('modalAddReminderForm');
     const modalNameInput      = document.getElementById('modal_rem_name');
-    const modalTypeRadios     = document.querySelectorAll('input[name="reminder_type"]');
+    const modalTypeRadios     = modalForm ? modalForm.querySelectorAll('input[name="reminder_type"]') : [];
     const modalCalGroup       = document.getElementById('modalCalendarGroup');
     const modalCalValInput    = document.getElementById('modal_rem_cal_val');
     const modalCalUnitSelect  = document.getElementById('modal_rem_cal_unit');
@@ -585,7 +585,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const modalRunValInput    = document.getElementById('modal_rem_run_val');
 
     function updateModalTypeVisibility() {
-        const checkedRadio = document.querySelector('input[name="reminder_type"]:checked');
+        if (!modalForm) return;
+        const checkedRadio = modalForm.querySelector('input[name="reminder_type"]:checked');
         const type = checkedRadio ? checkedRadio.value : 'calendar';
         const isCal  = (type === 'calendar');
         const isRun  = (type === 'runtime');
@@ -618,6 +619,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     modalTypeRadios.forEach(function (radio) {
         radio.addEventListener('change', updateModalTypeVisibility);
+        radio.addEventListener('click', updateModalTypeVisibility);
     });
 
     // Initial state
@@ -643,7 +645,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (modalForm) {
         modalForm.addEventListener('submit', function (e) {
             let isValid = true;
-            const checkedRadio = document.querySelector('input[name="reminder_type"]:checked');
+            const checkedRadio = modalForm.querySelector('input[name="reminder_type"]:checked');
             const type = checkedRadio ? checkedRadio.value : 'calendar';
 
             // 1. Validate Name

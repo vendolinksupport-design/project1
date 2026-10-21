@@ -43,7 +43,8 @@ $today = date('Y-m-d');
 $todayStats    = $reportModel->getSummaryMetrics($today, $today, 'all', $ownerId);
 $todayChart    = $reportModel->getTimeSeries($today, $today, 'today', 'all', $ownerId);
 $allMachines   = $machineModel->getAllActive($ownerId);
-$fleetMetrics  = (count($allMachines) > 1 && $ownerId > 0) ? $reportModel->getFleetMachineMetrics($ownerId, $today, $today) : [];
+$allMachineMetrics = (count($allMachines) > 1 && $ownerId > 0) ? $reportModel->getFleetMachineMetrics($ownerId, $today, $today) : [];
+$fleetMetrics  = $allMachineMetrics;
 $machineInfo   = current_selected_machine($ownerId) ?: $machineModel->primaryWithServices($ownerId);
 $recentTxs     = $txModel->getPaginated([], 1, 5, $ownerId)['items'];
 $maintItems    = $maintenanceModel->items($ownerId);
@@ -127,7 +128,7 @@ $soapService  = $servicesByKey['soap']  ?? ['name' => 'Soap Service',  'coin_val
                         Here's what's happening with your machines today.
                     </p>
                 </div>
-                <div class="page-header-actions d-flex align-items-center flex-shrink-0">
+                <div class="page-header-actions d-none">
                     <div class="page-date text-slate-300 d-inline-flex align-items-center text-nowrap" style="gap: 10px;">
                         <!-- Live Status Indicator -->
                         <div class="d-inline-flex align-items-center">

@@ -54,6 +54,7 @@ define('TERM_CURRENT_SESSION_TIME',   'Current Session Time');
 define('TERM_TOTAL_RUNTIME',          'Total Runtime');
 define('TERM_MACHINE_STATUS',         'Machine Status');
 define('TERM_TIME_PER_COIN',          'Time per ₱5');
+define('TERM_TIMER',                  'Timer');
 define('TERM_VENDOAI_INSIGHTS',       'VendoAI Insights');
 define('TERM_ESTIMATED_MONTHLY_SALES', 'Estimated Monthly Sales');
 define('TERM_WATER_REFILL_ESTIMATE',  'Water Refill Estimate');
@@ -137,6 +138,7 @@ const VENDOLINK_TERMINOLOGY = [
     'total_runtime'           => TERM_TOTAL_RUNTIME,
     'time_per_coin'           => TERM_TIME_PER_COIN,
     'service_time'            => TERM_TIME_PER_COIN,
+    'timer'                   => TERM_TIMER,
 
     // VendoAI Insights
     'vendoai_insights'        => TERM_VENDOAI_INSIGHTS,

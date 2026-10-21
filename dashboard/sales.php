@@ -209,110 +209,76 @@ if (!function_exists('sales_url')) {
             <!-- ============================================================
                  LIFETIME SUMMARY CARDS (Total Revenue | Transaction Count | Water Sales | Soap Sales)
                  ============================================================ -->
-            <div class="row g-4 mb-4">
+            <div class="row g-2 g-md-3 mb-4">
 
                 <!-- 1. Total Revenue -->
-                <div class="col-12 col-sm-6 col-xl-3">
-                    <div class="stat-card stat-card-sales">
-                        <div class="stat-card-body">
-                            <div class="stat-card-info">
-                                <p class="stat-card-label text-white">Total Revenue</p>
-                                <h3 class="stat-card-value text-success"><?= format_currency($lifetimeMetrics['total_revenue']) ?></h3>
-                                <p class="stat-card-trend text-light">
-                                    <span class="trend-badge trend-up">
-                                        <?= lucide_icon('check-circle', 'me-1') ?>Verified
-                                    </span>
-                                    <?= number_format($lifetimeMetrics['completed_count']) ?> completed tx
-                                </p>
-                            </div>
-                            <div class="stat-card-icon">
-                                <?= lucide_icon('dollar-sign') ?>
+                <div class="col-6 col-xl-3">
+                    <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions" class="admin-stat-card text-decoration-none" title="View Transaction History">
+                        <div>
+                            <div class="admin-stat-label">Total Revenue</div>
+                            <div class="admin-stat-value text-white"><?= format_currency($lifetimeMetrics['total_revenue']) ?></div>
+                            <div class="admin-stat-secondary text-slate-400">
+                                <?= number_format($lifetimeMetrics['completed_count']) ?> completed tx
                             </div>
                         </div>
-                        <div class="stat-card-footer">
-                            <span class="stat-card-link text-light">
-                                Lifetime completed revenue total
-                            </span>
+                        <div class="admin-stat-icon" style="background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.25); color: #34d399;">
+                            <i class="bi bi-cash-stack"></i>
                         </div>
-                    </div>
+                    </a>
                 </div>
 
                 <!-- 2. Transaction Count -->
-                <div class="col-12 col-sm-6 col-xl-3">
-                    <div class="stat-card stat-card-online">
-                        <div class="stat-card-body">
-                            <div class="stat-card-info">
-                                <p class="stat-card-label text-white">Transaction Count</p>
-                                <h3 class="stat-card-value text-white"><?= number_format($lifetimeMetrics['transaction_count']) ?></h3>
-                                <p class="stat-card-trend text-light">
-                                    <span class="trend-badge trend-neutral">
-                                        <?= lucide_icon('receipt', 'me-1') ?>Total Logged
-                                    </span>
-                                    all statuses
-                                </p>
-                            </div>
-                            <div class="stat-card-icon">
-                                <?= lucide_icon('receipt') ?>
+                <div class="col-6 col-xl-3">
+                    <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions" class="admin-stat-card text-decoration-none" title="View All Transactions">
+                        <div>
+                            <div class="admin-stat-label">Transaction Count</div>
+                            <div class="admin-stat-value text-white"><?= number_format($lifetimeMetrics['transaction_count']) ?></div>
+                            <div class="admin-stat-secondary">
+                                <span class="text-info"><i class="bi bi-receipt me-1"></i>Total Logged</span>
+                                <span class="text-slate-500 mx-1">&bull;</span>
+                                <span class="text-slate-400">All statuses</span>
                             </div>
                         </div>
-                        <div class="stat-card-footer">
-                            <span class="stat-card-link text-light">
-                                Lifetime sales records in view
-                            </span>
+                        <div class="admin-stat-icon" style="background: rgba(14, 165, 233, 0.12); border: 1px solid rgba(14, 165, 233, 0.25); color: #38bdf8;">
+                            <i class="bi bi-receipt-cutoff"></i>
                         </div>
-                    </div>
+                    </a>
                 </div>
 
                 <!-- 3. Water Service Sales -->
-                <div class="col-12 col-sm-6 col-xl-3">
-                    <div class="stat-card stat-card-notif" style="border-top-color: #38bdf8;">
-                        <div class="stat-card-body">
-                            <div class="stat-card-info">
-                                <p class="stat-card-label text-white">Water Sales</p>
-                                <h3 class="stat-card-value" style="color: #38bdf8;"><?= format_currency($lifetimeMetrics['water_revenue']) ?></h3>
-                                <p class="stat-card-trend text-light">
-                                    <span class="trend-badge trend-neutral">
-                                        <?= lucide_icon('droplets', 'me-1 text-info') ?><?= number_format($lifetimeMetrics['water_count']) ?> sales
-                                    </span>
-                                    water service
-                                </p>
-                            </div>
-                            <div class="stat-card-icon" style="background: rgba(56,189,248,.1); color: #38bdf8;">
-                                <?= lucide_icon('droplets') ?>
+                <div class="col-6 col-xl-3">
+                    <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions&service=water" class="admin-stat-card text-decoration-none" title="View Water History">
+                        <div>
+                            <div class="admin-stat-label">Water Sales</div>
+                            <div class="admin-stat-value text-white"><?= format_currency($lifetimeMetrics['water_revenue']) ?></div>
+                            <div class="admin-stat-secondary">
+                                <span style="color: #38bdf8;"><i class="bi bi-droplet-fill me-1"></i><?= number_format($lifetimeMetrics['water_count']) ?> Sales</span>
+                                <span class="text-slate-500 mx-1">&bull;</span>
+                                <span class="text-slate-400">Water service</span>
                             </div>
                         </div>
-                        <div class="stat-card-footer">
-                            <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions&service=water" class="stat-card-link text-light">
-                                View water history <?= lucide_icon('arrow-right', 'ms-1') ?>
-                            </a>
+                        <div class="admin-stat-icon" style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); color: #38bdf8;">
+                            <i class="bi bi-droplet-fill"></i>
                         </div>
-                    </div>
+                    </a>
                 </div>
 
                 <!-- 4. Soap Service Sales -->
-                <div class="col-12 col-sm-6 col-xl-3">
-                    <div class="stat-card stat-card-notif" style="border-top-color: #c084fc;">
-                        <div class="stat-card-body">
-                            <div class="stat-card-info">
-                                <p class="stat-card-label text-white">Soap Sales</p>
-                                <h3 class="stat-card-value" style="color: #c084fc;"><?= format_currency($lifetimeMetrics['soap_revenue']) ?></h3>
-                                <p class="stat-card-trend text-light">
-                                    <span class="trend-badge trend-neutral">
-                                        <?= lucide_icon('sparkles', 'me-1 text-warning') ?><?= number_format($lifetimeMetrics['soap_count']) ?> sales
-                                    </span>
-                                    soap service
-                                </p>
-                            </div>
-                            <div class="stat-card-icon" style="background: rgba(192,132,252,.1); color: #c084fc;">
-                                <?= lucide_icon('sparkles') ?>
+                <div class="col-6 col-xl-3">
+                    <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions&service=soap" class="admin-stat-card text-decoration-none" title="View Soap History">
+                        <div>
+                            <div class="admin-stat-label">Soap Sales</div>
+                            <div class="admin-stat-value text-white"><?= format_currency($lifetimeMetrics['soap_revenue']) ?></div>
+                            <div class="admin-stat-secondary">
+                                <span class="text-warning"><i class="bi bi-stars me-1"></i><?= number_format($lifetimeMetrics['soap_count']) ?> Sales</span>
+                                <span class="text-slate-500 mx-1">&bull;</span>
+                                <span class="text-slate-400">Soap service</span>
                             </div>
                         </div>
-                        <div class="stat-card-footer">
-                            <a href="<?= BASE_URL ?>/dashboard/archive.php?tab=transactions&service=soap" class="stat-card-link text-light">
-                                View soap history <?= lucide_icon('arrow-right', 'ms-1') ?>
-                            </a>
+                        <div class="admin-stat-icon" style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.25); color: #fbbf24;">
+                            <i class="bi bi-stars"></i>
                         </div>
-                    </div>
+                    </a>
                 </div>
 
             </div>
@@ -385,8 +351,8 @@ if (!function_exists('sales_url')) {
                                         <label class="form-label text-muted small mb-1 fw-medium">Service</label>
                                         <select class="form-select form-select-sm dark-input text-white" name="service">
                                             <option value="all" <?= $serviceFilter === 'all' ? 'selected' : '' ?>>All Services</option>
-                                            <option value="water" <?= $serviceFilter === 'water' ? 'selected' : '' ?>><?= ($primaryMachine['machine_type'] ?? 'carwash') === 'air_blower' ? 'Tire Air (Relay 1)' : 'Water Service' ?></option>
-                                            <option value="soap" <?= $serviceFilter === 'soap' ? 'selected' : '' ?>><?= ($primaryMachine['machine_type'] ?? 'carwash') === 'air_blower' ? 'Car Blower (Relay 2)' : 'Soap Service' ?></option>
+                                            <option value="water" <?= $serviceFilter === 'water' ? 'selected' : '' ?>><?= ($primaryMachine['machine_type'] ?? 'carwash') === 'air_blower' ? 'Tire Air (Outlet 1)' : 'Water Service' ?></option>
+                                            <option value="soap" <?= $serviceFilter === 'soap' ? 'selected' : '' ?>><?= ($primaryMachine['machine_type'] ?? 'carwash') === 'air_blower' ? 'Car Blower (Outlet 2)' : 'Soap Service' ?></option>
                                         </select>
                                     </div>
 
