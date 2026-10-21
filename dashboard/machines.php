@@ -600,10 +600,10 @@ function runtime_clock_label(int $seconds): string {
 
                         <!-- 3. ACTION BAR: CANCEL + SINGLE SAVE BUTTON -->
                         <div class="pt-3 border-top border-secondary border-opacity-25 d-flex align-items-center justify-content-end flex-wrap gap-2">
-                            <a href="<?= BASE_URL ?>/dashboard/machines.php" class="btn btn-outline-secondary px-3.5 py-2">
+                            <button type="button" class="btn btn-outline-secondary px-3.5 py-2" id="btnTriggerCancelConfig" data-bs-toggle="modal" data-bs-target="#confirmCancelConfigModal">
                                 <i class="bi bi-x-circle me-1"></i>Cancel
-                            </a>
-                            <button type="submit" class="btn btn-info text-dark fw-bold px-4 py-2" id="unifiedMasterSaveBtn" title="<?= term('save_changes', 'Save Changes') ?>">
+                            </button>
+                            <button type="button" class="btn btn-info text-dark fw-bold px-4 py-2" id="unifiedMasterSaveBtn" data-bs-toggle="modal" data-bs-target="#confirmSaveConfigModal" title="<?= term('save_changes', 'Save Changes') ?>">
                                 <i class="bi bi-save2-fill me-1"></i>Save Configuration as <span id="saveBtnPresetLabel"><?= e($typeBadge['label']) ?></span>
                             </button>
                         </div>
@@ -980,7 +980,83 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         });
     }
+
+    const confirmSaveModal = document.getElementById('confirmSaveConfigModal');
+    if (confirmSaveModal) {
+        confirmSaveModal.addEventListener('show.bs.modal', function () {
+            const target = document.getElementById('modalSavePresetTarget');
+            const source = document.getElementById('saveBtnPresetLabel');
+            if (target && source) {
+                target.textContent = source.textContent;
+            }
+        });
+    }
 });
 </script>
+
+<!-- Modal: Confirm Save Configuration -->
+<div class="modal fade" id="confirmSaveConfigModal" tabindex="-1" aria-labelledby="confirmSaveConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content text-light border-secondary border-opacity-25 shadow-2xl" style="background:#0f172a; border-color:#1e293b; border-radius: 1rem;">
+            <div class="modal-header border-secondary border-opacity-25 pb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 p-1.5 d-flex align-items-center justify-content-center text-info" style="background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.3);">
+                        <i class="bi bi-floppy-fill fs-5"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title fw-bold text-white fs-6 mb-0" id="confirmSaveConfigModalLabel">Save Configuration Changes?</h5>
+                        <div class="text-secondary small" style="font-size: .75rem;">Apply updated hardware timers and outlet settings</div>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-3 p-sm-4">
+                <p class="text-slate-300 small mb-2">
+                    Are you sure you want to save and dispatch these hardware configuration changes for <strong class="text-white"><?= e($machine['name'] ?? 'Machine') ?></strong>?
+                </p>
+                <div class="p-2.5 rounded-3 bg-dark bg-opacity-50 border border-secondary border-opacity-25 text-muted small font-monospace" style="font-size: 0.75rem;">
+                    Configuration Profile: <span class="text-info font-bold" id="modalSavePresetTarget"><?= e($typeBadge['label']) ?></span>
+                </div>
+            </div>
+            <div class="modal-footer border-secondary border-opacity-25 pt-3">
+                <button type="button" class="btn btn-outline-secondary px-3" data-bs-dismiss="modal">Keep Editing</button>
+                <button type="button" class="btn btn-info text-dark fw-bold px-3.5" id="btnExecuteSaveConfig" onclick="document.getElementById('unifiedHardwareForm').submit();">
+                    <i class="bi bi-check-circle-fill me-1"></i>Confirm &amp; Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Confirm Cancel Configuration -->
+<div class="modal fade" id="confirmCancelConfigModal" tabindex="-1" aria-labelledby="confirmCancelConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content text-light border-secondary border-opacity-25 shadow-2xl" style="background:#0f172a; border-color:#1e293b; border-radius: 1rem;">
+            <div class="modal-header border-secondary border-opacity-25 pb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 p-1.5 d-flex align-items-center justify-content-center text-warning" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3);">
+                        <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title fw-bold text-white fs-6 mb-0" id="confirmCancelConfigModalLabel">Discard Unsaved Changes?</h5>
+                        <div class="text-secondary small" style="font-size: .75rem;">Cancel machine configuration modifications</div>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-3 p-sm-4">
+                <p class="text-slate-300 small mb-0">
+                    Are you sure you want to cancel? Any unsaved modifications to service runtime timers or hardware outlet toggles will be discarded.
+                </p>
+            </div>
+            <div class="modal-footer border-secondary border-opacity-25 pt-3">
+                <button type="button" class="btn btn-outline-secondary px-3" data-bs-dismiss="modal">Continue Editing</button>
+                <a href="<?= BASE_URL ?>/dashboard/machines.php" class="btn btn-danger fw-semibold px-3.5" id="btnExecuteCancelConfig">
+                    <i class="bi bi-x-circle me-1"></i>Discard Changes
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
 </body>
 </html>

@@ -153,8 +153,8 @@ class Notification
 
         if ($filter === 'critical') {
             $where[] = "(category = 'critical' OR is_critical = 1)";
-        } elseif ($filter === 'hardware') {
-            $where[] = "category = 'hardware'";
+        } elseif (in_array($filter, ['hardware', 'logs', 'system_logs', 'system'], true)) {
+            $where[] = "(category = 'hardware' OR category = 'system')";
         } elseif ($filter === 'maintenance') {
             $where[] = "category = 'maintenance'";
         }
@@ -192,8 +192,8 @@ class Notification
 
         if ($filter === 'critical') {
             $where[] = "(category = 'critical' OR is_critical = 1)";
-        } elseif ($filter === 'hardware') {
-            $where[] = "category = 'hardware'";
+        } elseif (in_array($filter, ['hardware', 'logs', 'system_logs', 'system'], true)) {
+            $where[] = "(category = 'hardware' OR category = 'system')";
         } elseif ($filter === 'maintenance') {
             $where[] = "category = 'maintenance'";
         }
@@ -234,7 +234,7 @@ class Notification
         $sql = "SELECT 
                     COUNT(*) as total,
                     SUM(CASE WHEN category = 'critical' OR is_critical = 1 THEN 1 ELSE 0 END) as critical,
-                    SUM(CASE WHEN category = 'hardware' THEN 1 ELSE 0 END) as hardware
+                    SUM(CASE WHEN category = 'hardware' OR category = 'system' THEN 1 ELSE 0 END) as hardware
                 FROM notifications
                 WHERE user_id = :uid AND category != 'financial'";
 

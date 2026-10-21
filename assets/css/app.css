@@ -982,7 +982,8 @@ svg.lucide,
     animation: pulse-green 2s infinite;
 }
 
-.status-warning {
+.status-dot.status-warning,
+.status-warning.status-dot {
     background: #f59e0b;
     box-shadow: 0 0 0 2px rgba(245, 158, 11, .3);
 }
@@ -5472,18 +5473,28 @@ main.content-wrapper {
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
 }
 
 .mh-box-status.status-good {
     color: #24df88;
+    background: transparent !important;
+    box-shadow: none !important;
 }
 
 .mh-box-status.status-warning {
     color: #f59e0b;
+    background: transparent !important;
+    box-shadow: none !important;
 }
 
 .mh-box-status.status-bad {
     color: #ef4444;
+    background: transparent !important;
+    box-shadow: none !important;
 }
 
 .alert-box-container {

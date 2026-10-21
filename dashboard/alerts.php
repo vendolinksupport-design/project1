@@ -27,14 +27,21 @@ $maintenanceModel  = new Maintenance();
 $notificationModel = new Notification();
 
 $ownerId       = current_owner_id() ?: (int)($_SESSION['user_id'] ?? 1);
-$activeFilter  = 'all';
+$rawFilter     = strtolower(trim((string)($_GET['filter'] ?? 'all')));
+if (in_array($rawFilter, ['logs', 'system_logs', 'system'], true)) {
+    $activeFilter = 'hardware';
+} elseif (in_array($rawFilter, ['critical', 'hardware', 'maintenance'], true)) {
+    $activeFilter = $rawFilter;
+} else {
+    $activeFilter = 'all';
+}
 
 // Handle "Mark All as Read" action
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'mark_all_read') {
     $notificationModel->markAllAsRead($ownerId);
     $_SESSION['notifications_read_at'] = time();
     flash('success', 'All system notifications marked as read.');
-    redirect('dashboard/alerts.php');
+    redirect('dashboard/alerts.php' . ($activeFilter !== 'all' ? '?filter=' . urlencode($activeFilter) : ''));
 }
 
 // Counts for Summary Metrics directly from Notification model
@@ -45,19 +52,22 @@ $hardwareCount   = $summaryMetrics['hardware'];
 
 // Pagination parameters (15 alerts per page maximum)
 $perPage            = 15;
-$totalFilteredItems = $notificationModel->getTotalCount($ownerId, 'all');
+$totalFilteredItems = $notificationModel->getTotalCount($ownerId, $activeFilter);
 $totalPages         = max(1, (int) ceil($totalFilteredItems / $perPage));
 $page               = max(1, min($totalPages, (int) ($_GET['page'] ?? 1)));
 $offset             = ($page - 1) * $perPage;
 
-$pagedNotifications = $notificationModel->getForOwner($ownerId, 'all', $perPage, $offset);
+$pagedNotifications = $notificationModel->getForOwner($ownerId, $activeFilter, $perPage, $offset);
 
 
 if (!function_exists('build_alerts_url')) {
     function build_alerts_url(array $overrides = []): string
     {
-        $params = array_merge($_GET, $overrides);
-        unset($params['filter']);
+        global $activeFilter;
+        $params = array_merge(['filter' => $activeFilter], $_GET, $overrides);
+        if (isset($params['filter']) && $params['filter'] === 'all') {
+            unset($params['filter']);
+        }
         return 'alerts.php' . (!empty($params) ? '?' . http_build_query($params) : '');
     }
 }
@@ -136,61 +146,67 @@ $currentPage = 'alerts';
                 </div>
             </div>
 
-            <!-- Top KPI Summary Cards (3 Equal Columns) -->
+            <!-- Top KPI Summary Cards (3 Equal Columns - Click to Filter) -->
             <div class="row g-3 mb-4">
 
-                <!-- Total Notifications -->
+                <!-- Total Alerts -->
                 <div class="col-12 col-md-4">
-                    <div class="stat-card stat-card-accent-info">
-                        <div class="stat-card-body">
-                            <div class="stat-card-info">
-                                <p class="stat-card-label" data-original="TOTAL NOTIFICATIONS">TOTAL ALERTS</p>
-                                <h3 class="stat-card-value text-info" id="kpiTotalAlerts"><?= $totalAlerts ?></h3>
-                                <p class="stat-card-trend">
-                                    <span class="text-muted small">Monitored system events</span>
-                                </p>
-                            </div>
-                            <div class="stat-card-icon" style="background: rgba(56, 189, 248, 0.15); color: var(--vl-cyan);">
-                                <i class="bi bi-bell"></i>
+                    <a href="<?= build_alerts_url(['filter' => 'all', 'page' => 1]) ?>" class="text-decoration-none d-block h-100" title="Filter by All Alerts">
+                        <div class="stat-card stat-card-accent-info <?= ($activeFilter === 'all') ? 'border-info' : '' ?>" style="<?= ($activeFilter === 'all') ? 'box-shadow: 0 0 15px rgba(56, 189, 248, 0.25); border: 1px solid rgba(56, 189, 248, 0.5) !important;' : '' ?>">
+                            <div class="stat-card-body">
+                                <div class="stat-card-info">
+                                    <p class="stat-card-label" data-original="TOTAL NOTIFICATIONS">TOTAL ALERTS</p>
+                                    <h3 class="stat-card-value text-info" id="kpiTotalAlerts"><?= $totalAlerts ?></h3>
+                                    <p class="stat-card-trend">
+                                        <span class="text-muted small">Monitored system events</span>
+                                    </p>
+                                </div>
+                                <div class="stat-card-icon" style="background: rgba(56, 189, 248, 0.15); color: var(--vl-cyan);">
+                                    <i class="bi bi-bell"></i>
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    </a>
                 </div>
 
-                <!-- Critical Notifications -->
+                <!-- Critical Alerts -->
                 <div class="col-12 col-md-4">
-                    <div class="stat-card stat-card-accent-danger">
-                        <div class="stat-card-body">
-                            <div class="stat-card-info">
-                                <p class="stat-card-label" data-original="CRITICAL NOTIFICATIONS">CRITICAL ALERTS</p>
-                                <h3 class="stat-card-value text-danger" id="kpiCriticalCount"><?= $criticalCount ?></h3>
-                                <p class="stat-card-trend">
-                                    <span class="text-muted small">Low reservoir level warnings</span>
-                                </p>
-                            </div>
-                            <div class="stat-card-icon" style="background: rgba(239, 68, 68, 0.15); color: #f87171;">
-                                <i class="bi bi-exclamation-triangle-fill"></i>
+                    <a href="<?= build_alerts_url(['filter' => 'critical', 'page' => 1]) ?>" class="text-decoration-none d-block h-100" title="Filter by Critical Alerts">
+                        <div class="stat-card stat-card-accent-danger <?= ($activeFilter === 'critical') ? 'border-danger' : '' ?>" style="<?= ($activeFilter === 'critical') ? 'box-shadow: 0 0 15px rgba(239, 68, 68, 0.25); border: 1px solid rgba(239, 68, 68, 0.5) !important;' : '' ?>">
+                            <div class="stat-card-body">
+                                <div class="stat-card-info">
+                                    <p class="stat-card-label" data-original="CRITICAL NOTIFICATIONS">CRITICAL ALERTS</p>
+                                    <h3 class="stat-card-value text-danger" id="kpiCriticalCount"><?= $criticalCount ?></h3>
+                                    <p class="stat-card-trend">
+                                        <span class="text-muted small">Low reservoir level warnings</span>
+                                    </p>
+                                </div>
+                                <div class="stat-card-icon" style="background: rgba(239, 68, 68, 0.15); color: #f87171;">
+                                    <i class="bi bi-exclamation-triangle-fill"></i>
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    </a>
                 </div>
 
                 <!-- Hardware Notifications / System Logs -->
                 <div class="col-12 col-md-4">
-                    <div class="stat-card stat-card-accent-warning">
-                        <div class="stat-card-body">
-                            <div class="stat-card-info">
-                                <p class="stat-card-label" data-original="HARDWARE NOTIFICATIONS">SYSTEM LOGS</p>
-                                <h3 class="stat-card-value text-warning" id="kpiHardwareCount"><?= $hardwareCount ?></h3>
-                                <p class="stat-card-trend">
-                                    <span class="text-muted small">Restorations, connectivity &amp; activity logs</span>
-                                </p>
-                            </div>
-                            <div class="stat-card-icon" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;">
-                                <i class="bi bi-journal-text"></i>
+                    <a href="<?= build_alerts_url(['filter' => 'hardware', 'page' => 1]) ?>" class="text-decoration-none d-block h-100" title="Filter by System Logs">
+                        <div class="stat-card stat-card-accent-warning <?= ($activeFilter === 'hardware') ? 'border-warning' : '' ?>" style="<?= ($activeFilter === 'hardware') ? 'box-shadow: 0 0 15px rgba(245, 158, 11, 0.25); border: 1px solid rgba(245, 158, 11, 0.5) !important;' : '' ?>">
+                            <div class="stat-card-body">
+                                <div class="stat-card-info">
+                                    <p class="stat-card-label" data-original="HARDWARE NOTIFICATIONS">SYSTEM LOGS</p>
+                                    <h3 class="stat-card-value text-warning" id="kpiHardwareCount"><?= $hardwareCount ?></h3>
+                                    <p class="stat-card-trend">
+                                        <span class="text-muted small">Restorations, connectivity &amp; activity logs</span>
+                                    </p>
+                                </div>
+                                <div class="stat-card-icon" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;">
+                                    <i class="bi bi-journal-text"></i>
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    </a>
                 </div>
 
             </div>
@@ -207,9 +223,18 @@ $currentPage = 'alerts';
                         </p>
                     </div>
                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <span class="badge bg-secondary-subtle text-slate-300 border border-secondary border-opacity-25 px-2.5 py-1.5 font-monospace" style="font-size: 0.8rem;">
+                        <a class="btn btn-sm <?= ($activeFilter === 'all') ? 'btn-primary' : 'btn-outline-secondary' ?> font-semibold"
+                           href="<?= build_alerts_url(['filter' => 'all', 'page' => 1]) ?>">
                             All (<span id="filterAllCount"><?= $totalAlerts ?></span>)
-                        </span>
+                        </a>
+                        <a class="btn btn-sm <?= ($activeFilter === 'critical') ? 'btn-danger' : 'btn-outline-danger' ?> font-semibold"
+                           href="<?= build_alerts_url(['filter' => 'critical', 'page' => 1]) ?>">
+                            Critical Alerts (<span id="filterCriticalCount"><?= $criticalCount ?></span>)
+                        </a>
+                        <a class="btn btn-sm <?= ($activeFilter === 'hardware') ? 'btn-warning text-dark' : 'btn-outline-warning' ?> font-semibold"
+                           href="<?= build_alerts_url(['filter' => 'hardware', 'page' => 1]) ?>">
+                            System Logs (<span id="filterHardwareCount"><?= $hardwareCount ?></span>)
+                        </a>
                     </div>
                 </div>
 
