@@ -1,57 +1,13 @@
 'use strict';
 
 document.addEventListener('DOMContentLoaded', function () {
-    const forms = document.querySelectorAll('.service-config-card, #unifiedServiceForm, #unifiedHardwareForm');
-    forms.forEach(function (form) {
-        const state = form.querySelector('.save-state');
-        const submit = form.querySelector('.btn-save-config, #unifiedMasterSaveBtn');
-        const trackedInputs = form.querySelectorAll('input[name], select[name], textarea[name]');
-        const original = Array.from(trackedInputs, function (input) {
-            return input.type === 'checkbox' ? String(input.checked) : input.value;
-        });
+    // 1. Initialize Steppers globally across any container
+    function initSteppers(container) {
+        const root = container || document;
+        root.querySelectorAll('.stepper').forEach(function (stepper) {
+            if (stepper.dataset.stepperInitialized === 'true') return;
+            stepper.dataset.stepperInitialized = 'true';
 
-        function hasChanges() {
-            return Array.from(trackedInputs).some(function (input, index) {
-                const value = input.type === 'checkbox' ? String(input.checked) : input.value;
-                return value !== original[index];
-            });
-        }
-
-        function updateSaveState() {
-            const label = submit ? submit.querySelector('.btn-text') : null;
-            if (hasChanges()) {
-                if (state) {
-                    state.textContent = 'You have unsaved changes.';
-                    state.classList.add('has-changes');
-                }
-                if (label) {
-                    label.innerHTML = '<i class="bi bi-save2 me-2"></i>Save Configuration';
-                }
-            } else {
-                if (state) {
-                    state.textContent = 'No changes yet.';
-                    state.classList.remove('has-changes');
-                }
-                if (label) {
-                    label.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Save Configuration';
-                }
-            }
-        }
-
-        // Live status badge pills on toggle switch changes
-        form.querySelectorAll('input[type="checkbox"]').forEach(function (toggle) {
-            toggle.addEventListener('change', function () {
-                if (toggle.dataset.targetPill) {
-                    const pill = document.getElementById(toggle.dataset.targetPill);
-                    if (pill) {
-                        pill.textContent = toggle.checked ? 'Enabled' : 'Disabled';
-                        pill.className = 'badge rounded-pill px-3 py-1.5 fw-semibold service-status-pill ' + (toggle.checked ? 'bg-success' : 'bg-secondary');
-                    }
-                }
-            });
-        });
-
-        form.querySelectorAll('.stepper').forEach(function (stepper) {
             const input = stepper.querySelector('input[type="hidden"], input[name*="service_seconds"], input[name]');
             const timeEntry = stepper.querySelector('.time-entry');
             const step = Number(stepper.dataset.step || 1);
@@ -69,14 +25,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
             function render(value) {
                 const safeValue = Math.max(min, Math.min(max, value));
-                if (input) input.value = safeValue;
+                if (input) {
+                    input.value = safeValue;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                }
                 if (timeEntry) {
                     const minutes = Math.floor(safeValue / 60);
                     const seconds = safeValue % 60;
                     timeEntry.value = String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
                 }
                 updateButtonStates(safeValue);
-                updateSaveState();
             }
 
             function change(direction, accelerated) {
@@ -123,6 +82,60 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // Initialize button states on load
             if (input) render(Number(input.value));
+        });
+    }
+
+    initSteppers(document);
+
+    // 2. Track changes & handle confirmation for legacy / multi-card service forms
+    const forms = document.querySelectorAll('.service-config-card:not(#unifiedHardwareForm), #unifiedServiceForm');
+    forms.forEach(function (form) {
+        const state = form.querySelector('.save-state');
+        const submit = form.querySelector('.btn-save-config');
+        const trackedInputs = form.querySelectorAll('input[name], select[name], textarea[name]');
+        const original = Array.from(trackedInputs, function (input) {
+            return input.type === 'checkbox' ? String(input.checked) : input.value;
+        });
+
+        function hasChanges() {
+            return Array.from(trackedInputs).some(function (input, index) {
+                const value = input.type === 'checkbox' ? String(input.checked) : input.value;
+                return value !== original[index];
+            });
+        }
+
+        function updateSaveState() {
+            const label = submit ? submit.querySelector('.btn-text') : null;
+            if (hasChanges()) {
+                if (state) {
+                    state.textContent = 'You have unsaved changes.';
+                    state.classList.add('has-changes');
+                }
+                if (label) {
+                    label.innerHTML = '<i class="bi bi-save2 me-2"></i>Save Configuration';
+                }
+            } else {
+                if (state) {
+                    state.textContent = 'No changes yet.';
+                    state.classList.remove('has-changes');
+                }
+                if (label) {
+                    label.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Save Configuration';
+                }
+            }
+        }
+
+        // Live status badge pills on toggle switch changes
+        form.querySelectorAll('input[type="checkbox"]').forEach(function (toggle) {
+            toggle.addEventListener('change', function () {
+                if (toggle.dataset.targetPill) {
+                    const pill = document.getElementById(toggle.dataset.targetPill);
+                    if (pill) {
+                        pill.textContent = toggle.checked ? 'Enabled' : 'Disabled';
+                        pill.className = 'badge rounded-pill px-3 py-1.5 fw-semibold service-status-pill ' + (toggle.checked ? 'bg-success' : 'bg-secondary');
+                    }
+                }
+            });
         });
 
         trackedInputs.forEach(function (input) {

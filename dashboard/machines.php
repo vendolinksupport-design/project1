@@ -364,7 +364,7 @@ function runtime_clock_label(int $seconds): string {
 
                 <!-- UNIFIED MACHINE HARDWARE & SERVICE CONTROLLER PANEL -->
                 <div class="report-section-card mb-4 text-light p-3 p-md-4 rounded-3" style="border: 1px solid rgba(56, 189, 248, 0.25); background: rgba(15, 23, 42, 0.75);">
-                    <form id="unifiedHardwareForm" class="service-config-card" method="POST" action="" data-confirm-save="true" data-confirm-message="Save and apply configuration to your machine?">
+                    <form id="unifiedHardwareForm" method="POST" action="">
                         <?= csrf_field() ?>
                         <input type="hidden" name="action" value="save_hardware_unified">
                         <input type="hidden" name="machine_id" value="<?= (int)$machine['id'] ?>">

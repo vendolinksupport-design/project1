@@ -85,7 +85,7 @@ class Service
             return (bool) $this->db->query(
                 'SELECT 1 FROM services s 
                  INNER JOIN machines m ON m.id = s.machine_id
-                 LEFT JOIN product_keys pk ON (pk.hardware_serial = m.machine_code OR pk.hardware_serial = m.machine_key)
+                 LEFT JOIN product_keys pk ON (pk.machine_id = m.id OR pk.hardware_serial = m.machine_code OR pk.hardware_serial = m.machine_key)
                  WHERE s.id = :id AND (m.owner_id = :owner_id OR pk.owner_id = :owner_id2) LIMIT 1',
                 [':id' => $serviceId, ':owner_id' => $ownerId, ':owner_id2' => $ownerId]
             )->fetchColumn();
