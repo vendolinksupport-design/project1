@@ -65,6 +65,20 @@ class MachineController
             $machineModel->updateLcdLines($machineId, $line1, $line2, $line3, $line4);
 
             // 3. Update Services (Outlet 1 & Outlet 2)
+            // Fixed templates enforce standard names and icons; Presets are 100% custom & editable
+            $isStandardFixed = in_array($template, ['carwash', 'air_blower'], true);
+            $fixedDefs = [
+                'carwash' => [
+                    1 => ['name' => 'Water Service', 'icon' => 'water', 'type' => 'water'],
+                    2 => ['name' => 'Soap Service',  'icon' => 'soap',  'type' => 'soap'],
+                ],
+                'air_blower' => [
+                    1 => ['name' => 'Tire Air Compressor', 'icon' => 'tire_air', 'type' => 'air'],
+                    2 => ['name' => 'Car Blower Fan',      'icon' => 'blower',   'type' => 'blower'],
+                ]
+            ];
+
+            $outletLoopIdx = 1;
             if (isset($_POST['services']) && is_array($_POST['services'])) {
                 foreach ($_POST['services'] as $idKey => $item) {
                     $serviceId      = filter_var($item['id'] ?? $idKey, FILTER_VALIDATE_INT);
@@ -74,6 +88,13 @@ class MachineController
                     $serviceName    = !empty($item['name']) ? trim($item['name']) : 'Service';
                     $serviceIcon    = !empty($item['icon']) ? trim($item['icon']) : null;
                     $serviceType    = !empty($item['type']) ? trim($item['type']) : null;
+
+                    if ($isStandardFixed && isset($fixedDefs[$template][$outletLoopIdx])) {
+                        $serviceName = $fixedDefs[$template][$outletLoopIdx]['name'];
+                        $serviceIcon = $fixedDefs[$template][$outletLoopIdx]['icon'];
+                        $serviceType = $fixedDefs[$template][$outletLoopIdx]['type'];
+                    }
+                    $outletLoopIdx++;
 
                     if ($serviceId && $serviceModel->belongsToPrimaryMachine($serviceId, $ownerId)) {
                         $serviceModel->updateConfiguration(
