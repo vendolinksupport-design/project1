@@ -19,7 +19,7 @@
  *    - Compact Export Excel action at top-right
  *    - Date range buttons: Today, This Week, This Month, This Year, All Time
  *    - Compact Filters dropdown (Machine, Service)
- *    - Three analytics metrics: Revenue, Transactions, Average Ticket
+ *    - Three analytics metrics: Revenue, Transactions, Average Spend
  *    - Revenue Trend chart canvas
  *    - Recent Transactions: latest 5 completed transactions with View All link to History
  *    - Sales Performance Excel export functionality with report metadata and formula sanitization
@@ -158,7 +158,7 @@ assert_test(strpos($salesHtml, 'Export Excel') !== false, "Compact Export Excel 
 // Check 3 analytics metrics
 assert_test(strpos($salesHtml, 'Revenue') !== false, "Analytics Metric 1 (Revenue) present");
 assert_test(strpos($salesHtml, 'Transactions') !== false, "Analytics Metric 2 (Transactions) present");
-assert_test(strpos($salesHtml, 'Average Ticket') !== false, "Analytics Metric 3 (Average Ticket) present");
+assert_test(strpos($salesHtml, 'Average Spend') !== false || strpos($salesHtml, 'Average Ticket') !== false, "Analytics Metric 3 (Average Spend) present");
 
 // Check chart canvas
 assert_test(strpos($salesHtml, 'id="salesAnalyticsChart"') !== false, "Sales Analytics Chart canvas present");
@@ -293,7 +293,7 @@ assert_test(strpos($configHtml, 'tx-empty-row') === false, "No fake tx-empty-row
 echo "  [PASS] History interface subtab renaming, summary card removal, shared table rules, and Lucide icons verified.\n\n";
 
 echo "===================================================================\n";
-echo "🎉 ALL TESTS PASSED 100% SUCCESSFULLY!\n";
+echo "ALL TESTS PASSED 100% SUCCESSFULLY!\n";
 echo "===================================================================\n";
 
 function assert_test(bool $condition, string $message): void {

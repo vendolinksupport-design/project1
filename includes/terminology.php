@@ -48,6 +48,7 @@ define('TERM_TODAYS_REVENUE',         "Today's Revenue");
 define('TERM_TODAYS_TRANSACTIONS',    "Today's Transactions");
 define('TERM_WATER_SALES',            'Water Sales');
 define('TERM_SOAP_SALES',             'Soap Sales');
+define('TERM_AVERAGE_SPEND',          'Average Spend');
 define('TERM_CASH_COLLECTIONS',       'Cash Collections');
 define('TERM_PURCHASED_TIME',         'Purchased Time');
 define('TERM_CURRENT_SESSION_TIME',   'Current Session Time');
@@ -127,6 +128,8 @@ const VENDOLINK_TERMINOLOGY = [
     'todays_sales'            => TERM_TODAYS_SALES,
     'todays_revenue'          => TERM_TODAYS_REVENUE,
     'todays_transactions'     => TERM_TODAYS_TRANSACTIONS,
+    'average_spend'           => TERM_AVERAGE_SPEND,
+    'average_ticket'          => TERM_AVERAGE_SPEND,
     'water_sales'             => TERM_WATER_SALES,
     'soap_sales'              => TERM_SOAP_SALES,
     'cash_collections'        => TERM_CASH_COLLECTIONS,

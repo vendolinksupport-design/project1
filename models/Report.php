@@ -1111,7 +1111,7 @@ class Report
         fputcsv($output, ['ANALYTICS SUMMARY']);
         fputcsv($output, ['Total Revenue', '₱' . number_format($analytics['metrics']['total_revenue'], 2, '.', '')]);
         fputcsv($output, ['Completed Transactions', (string)$analytics['metrics']['total_transactions']]);
-        fputcsv($output, ['Average Ticket', '₱' . number_format($analytics['metrics']['avg_transaction'], 2, '.', '')]);
+        fputcsv($output, ['Average Spend', '₱' . number_format($analytics['metrics']['avg_transaction'], 2, '.', '')]);
         fputcsv($output, ['Water Revenue', '₱' . number_format($analytics['breakdown']['water_revenue'], 2, '.', '')]);
         fputcsv($output, ['Water Completed Transactions', (string)$analytics['breakdown']['water_transactions']]);
         fputcsv($output, ['Soap Revenue', '₱' . number_format($analytics['breakdown']['soap_revenue'], 2, '.', '')]);

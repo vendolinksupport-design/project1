@@ -391,7 +391,7 @@ if (!function_exists('sales_url')) {
                 </div>
                 <?php endif; ?>
 
-                <!-- Three Analytics Metrics: Revenue, Transactions, Average Ticket -->
+                <!-- Three Analytics Metrics: Revenue, Transactions, Average Spend -->
                 <div class="row g-3 mb-4">
                     <!-- 1. Revenue -->
                     <div class="col-12 col-md-4">
@@ -416,10 +416,10 @@ if (!function_exists('sales_url')) {
                         </div>
                     </div>
 
-                    <!-- 3. Average Ticket -->
+                    <!-- 3. Average Spend -->
                     <div class="col-12 col-md-4">
                         <div class="sales-kpi-pill">
-                            <div class="kpi-label">Average Ticket</div>
+                            <div class="kpi-label"><?= term('average_spend', 'Average Spend') ?></div>
                             <div class="kpi-value text-info" id="kpiAvgTx"><?= $salesAnalytics['metrics']['avg_transaction_formatted'] ?></div>
                             <div class="kpi-sub text-muted small">Per completed vend</div>
                         </div>

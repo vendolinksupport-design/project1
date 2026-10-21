@@ -88,7 +88,7 @@ assert_test(strpos($emptyHtml, 'Sales Performance') !== false, "Header preserved
 assert_test(strpos($emptyHtml, 'sales-period-filter-group') !== false, "Date-range controls preserved in empty state");
 assert_test(strpos($emptyHtml, 'salesFilterDropdown') !== false, "Filters button preserved in empty state");
 assert_test(strpos($emptyHtml, 'salesExportExcelBtn') !== false, "Export Excel preserved in empty state");
-assert_test(strpos($emptyHtml, 'Revenue') !== false && strpos($emptyHtml, 'Transactions') !== false && strpos($emptyHtml, 'Average Ticket') !== false, "Three KPI cards preserved in empty state");
+assert_test(strpos($emptyHtml, 'Revenue') !== false && strpos($emptyHtml, 'Transactions') !== false && (strpos($emptyHtml, 'Average Spend') !== false || strpos($emptyHtml, 'Average Ticket') !== false), "Three KPI cards preserved in empty state");
 
 // 3. Test Populated Chart State (period=all where has_data is true)
 echo "\n--- 3. Testing Populated-Chart Rendering (period=all) ---\n";
@@ -109,7 +109,7 @@ assert_test(strpos($populatedHtml, 'Sales Performance') !== false, "Header prese
 assert_test(strpos($populatedHtml, 'sales-period-filter-group') !== false, "Date-range controls preserved in populated state");
 assert_test(strpos($populatedHtml, 'salesFilterDropdown') !== false, "Filters button preserved in populated state");
 assert_test(strpos($populatedHtml, 'salesExportExcelBtn') !== false, "Export Excel preserved in populated state");
-assert_test(strpos($populatedHtml, 'Revenue') !== false && strpos($populatedHtml, 'Transactions') !== false && strpos($populatedHtml, 'Average Ticket') !== false, "Three KPI cards preserved in populated state");
+assert_test(strpos($populatedHtml, 'Revenue') !== false && strpos($populatedHtml, 'Transactions') !== false && (strpos($populatedHtml, 'Average Spend') !== false || strpos($populatedHtml, 'Average Ticket') !== false), "Three KPI cards preserved in populated state");
 
 // 4. Test Client-Side Script Toggle Logic
 echo "\n--- 4. Testing Client-Side Script in sales.php ---\n";
@@ -120,5 +120,5 @@ assert_test(strpos($salesPhpContent, 'emptyEl.classList.add(\'d-none\')') !== fa
 assert_test(strpos($salesPhpContent, 'emptyEl.classList.remove(\'d-none\')') !== false, "JS script shows emptyEl when hasData is false");
 
 echo "\n===================================================================\n";
-echo "🎉 ALL PANEL HEIGHT AND EMPTY STATE TESTS PASSED 100% SUCCESSFULLY!\n";
+echo "ALL PANEL HEIGHT AND EMPTY STATE TESTS PASSED 100% SUCCESSFULLY!\n";
 echo "===================================================================\n";
