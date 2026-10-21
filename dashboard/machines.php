@@ -459,9 +459,7 @@ function runtime_clock_label(int $seconds): string {
                             </div>
 
                             <div class="row g-4">
-                            <?php 
-                            $isCustomPreset = in_array($machineType, ['preset_1', 'preset_2'], true);
-                            foreach ($machine['services'] as $idx => $service):
+                            <?php foreach ($machine['services'] as $idx => $service):
                                 $outletNum = $idx + 1;
                                 $gpioPin = ($outletNum === 1) ? 25 : 33;
                                 $serviceId = (int)$service['id'];
@@ -484,7 +482,7 @@ function runtime_clock_label(int $seconds): string {
                                         <div class="d-flex align-items-start justify-content-between mb-3 gap-2">
                                             <div class="d-flex align-items-center" style="gap: 16px;">
                                                 <div class="position-relative" style="z-index: 1020;">
-                                                    <button type="button" onclick="toggleIconOverlay(<?= $outletNum ?>)" id="out<?= $outletNum ?>IconBadge" class="squircle-badge shadow-sm position-relative border-0" style="background: rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.15); border: 1px solid rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.35) !important; color: <?= $outletNum === 1 ? '#22d3ee' : '#fbbf24' ?>; cursor: <?= $isCustomPreset ? 'pointer' : 'default' ?>;" title="<?= $isCustomPreset ? 'Click to choose a new icon' : 'Standard template icon (fixed)' ?>">
+                                                    <button type="button" onclick="toggleIconOverlay(<?= $outletNum ?>)" id="out<?= $outletNum ?>IconBadge" class="squircle-badge shadow-sm position-relative border-0" style="background: rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.15); border: 1px solid rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.35) !important; color: <?= $outletNum === 1 ? '#22d3ee' : '#fbbf24' ?>; cursor: pointer;" title="Click to choose a new icon">
                                                         <?php if ($serviceIcon === 'water'): ?>
                                                             <i class="bi bi-droplet-fill fs-5"></i>
                                                         <?php elseif ($serviceIcon === 'soap'): ?>
@@ -501,7 +499,7 @@ function runtime_clock_label(int $seconds): string {
                                                         <?php else: ?>
                                                             <i class="bi bi-droplet-fill fs-5"></i>
                                                         <?php endif; ?>
-                                                        <span id="out<?= $outletNum ?>PencilBadge" class="position-absolute rounded-circle d-flex align-items-center justify-content-center bg-dark border border-secondary text-info shadow <?= $isCustomPreset ? '' : 'd-none' ?>" style="width: 16px; height: 16px; bottom: -3px; right: -3px; font-size: 8px;">
+                                                        <span class="position-absolute rounded-circle d-flex align-items-center justify-content-center bg-dark border border-secondary text-info shadow" style="width: 16px; height: 16px; bottom: -3px; right: -3px; font-size: 8px;">
                                                             <i class="bi bi-pencil-fill"></i>
                                                         </span>
                                                     </button>
@@ -546,15 +544,10 @@ function runtime_clock_label(int $seconds): string {
                                                 </div>
 
                                                 <div>
-                                                    <input type="text" name="services[<?= $serviceId ?>][name]" id="out<?= $outletNum ?>InputName" class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-25 fw-bold px-3 py-1.5 mb-1.5 <?= $isCustomPreset ? '' : 'bg-opacity-50 text-slate-300' ?>" style="min-width: 180px; max-width: 220px; font-size: 0.95rem;" value="<?= e($serviceTitle) ?>" <?= $isCustomPreset ? '' : 'readonly' ?> title="<?= $isCustomPreset ? 'Edit service display name' : 'Standard template name (fixed)' ?>">
-                                                    <div class="d-flex align-items-center gap-1.5">
-                                                        <span class="badge font-monospace" style="background: rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.15); border: 1px solid rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.35); color: <?= $outletNum === 1 ? '#22d3ee' : '#fbbf24' ?>; font-size: 0.72rem;">
-                                                            <i class="bi bi-plug-fill me-0.5"></i>Outlet <?= $outletNum ?>
-                                                        </span>
-                                                        <span id="out<?= $outletNum ?>LockBadge" class="badge bg-secondary-subtle text-slate-400 border border-secondary border-opacity-25 font-monospace <?= $isCustomPreset ? 'd-none' : '' ?>" style="font-size: 0.68rem;">
-                                                            <i class="bi bi-lock-fill me-0.5"></i>Fixed
-                                                        </span>
-                                                    </div>
+                                                    <input type="text" name="services[<?= $serviceId ?>][name]" id="out<?= $outletNum ?>InputName" class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-25 fw-bold px-3 py-1.5 mb-1.5" style="min-width: 180px; max-width: 220px; font-size: 0.95rem;" value="<?= e($serviceTitle) ?>" title="Edit service display name">
+                                                    <span class="badge font-monospace" style="background: rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.15); border: 1px solid rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.35); color: <?= $outletNum === 1 ? '#22d3ee' : '#fbbf24' ?>; font-size: 0.72rem;">
+                                                        <i class="bi bi-plug-fill me-0.5"></i>Outlet <?= $outletNum ?>
+                                                    </span>
                                                 </div>
                                             </div>
 
@@ -707,57 +700,10 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     };
 
-    function updateTemplateLockState(presetKey) {
-        const isCustom = (presetKey === 'preset_1' || presetKey === 'preset_2');
-        [1, 2].forEach(function (num) {
-            const badge = document.getElementById('out' + num + 'IconBadge');
-            const pencil = document.getElementById('out' + num + 'PencilBadge');
-            const nameInput = document.getElementById('out' + num + 'InputName');
-            const lockBadge = document.getElementById('out' + num + 'LockBadge');
-
-            if (isCustom) {
-                if (badge) {
-                    badge.style.cursor = 'pointer';
-                    badge.setAttribute('title', 'Click to choose a new icon');
-                }
-                if (pencil) pencil.classList.remove('d-none');
-                if (nameInput) {
-                    nameInput.readOnly = false;
-                    nameInput.classList.remove('bg-opacity-50', 'text-slate-300');
-                    nameInput.setAttribute('title', 'Edit service display name');
-                }
-                if (lockBadge) lockBadge.classList.add('d-none');
-            } else {
-                if (badge) {
-                    badge.style.cursor = 'default';
-                    badge.setAttribute('title', 'Standard template icon (fixed)');
-                }
-                if (pencil) pencil.classList.add('d-none');
-                if (nameInput) {
-                    nameInput.readOnly = true;
-                    nameInput.classList.add('bg-opacity-50', 'text-slate-300');
-                    nameInput.setAttribute('title', 'Standard template name (fixed)');
-                }
-                if (lockBadge) lockBadge.classList.remove('d-none');
-                window.closeIconOverlay(num);
-            }
-        });
-    }
-
     window.toggleIconOverlay = function (outletNum) {
         if (window.event) {
             window.event.preventDefault();
             window.event.stopPropagation();
-        }
-        const machineTemplateSelect = document.getElementById('machineTemplateSelect');
-        const currentTmpl = machineTemplateSelect ? machineTemplateSelect.value : 'carwash';
-        if (currentTmpl !== 'preset_1' && currentTmpl !== 'preset_2') {
-            if (window.VendoLink && typeof VendoLink.toast === 'function') {
-                if (!document.querySelector('.vendolink-toast, .toast.show')) {
-                    VendoLink.toast('Standard templates are fixed. Select Preset 1 or Preset 2 to customize icons and names.', 'info');
-                }
-            }
-            return;
         }
         const overlay = document.getElementById('out' + outletNum + 'Overlay');
         const otherNum = outletNum === 1 ? 2 : 1;
@@ -839,15 +785,12 @@ document.addEventListener('DOMContentLoaded', function () {
             nameInput.dispatchEvent(new Event('change', { bubbles: true }));
         }
 
-        // Update squircle badge preserving the edit pencil badge visibility
+        // Update squircle badge preserving the edit pencil badge
         const badge = document.getElementById('out' + outletNum + 'IconBadge');
-        const templateSelect = document.getElementById('machineTemplateSelect');
-        const currentTmpl = templateSelect ? templateSelect.value : 'carwash';
-        const isCustom = (currentTmpl === 'preset_1' || currentTmpl === 'preset_2');
         if (badge) {
-            badge.innerHTML = tmpl.html + '<span id="out' + outletNum + 'PencilBadge" class="position-absolute rounded-circle d-flex align-items-center justify-content-center bg-dark border border-secondary text-info shadow ' + (isCustom ? '' : 'd-none') + '" style="width: 16px; height: 16px; bottom: -3px; right: -3px; font-size: 8px;"><i class="bi bi-pencil-fill"></i></span>';
-            badge.style.cssText = tmpl.style + ' cursor: ' + (isCustom ? 'pointer;' : 'default;');
-            badge.setAttribute('style', tmpl.style + ' cursor: ' + (isCustom ? 'pointer;' : 'default;'));
+            badge.innerHTML = tmpl.html + '<span class="position-absolute rounded-circle d-flex align-items-center justify-content-center bg-dark border border-secondary text-info shadow" style="width: 16px; height: 16px; bottom: -3px; right: -3px; font-size: 8px;"><i class="bi bi-pencil-fill"></i></span>';
+            badge.style.cssText = tmpl.style + ' cursor: pointer;';
+            badge.setAttribute('style', tmpl.style + ' cursor: pointer;');
         }
 
         // Dynamically update active highlight classes on buttons in the overlay popover
@@ -976,9 +919,6 @@ document.addEventListener('DOMContentLoaded', function () {
             if (out2Name) out2Name.value = preset.outlets[1].name;
             window.selectOutletIcon(2, preset.outlets[1].icon);
         }
-
-        // Lock standard templates or unlock custom presets
-        updateTemplateLockState(presetKey);
     }
 
     const machineTemplateSelect = document.getElementById('machineTemplateSelect');
@@ -986,8 +926,6 @@ document.addEventListener('DOMContentLoaded', function () {
         machineTemplateSelect.addEventListener('change', function () {
             applyPreset(this.value);
         });
-        // Initialize lock state on page load
-        updateTemplateLockState(machineTemplateSelect.value);
     }
 
     const btnResetToProfile = document.getElementById('btnResetToProfile');
