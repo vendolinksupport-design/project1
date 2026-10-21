@@ -45,6 +45,20 @@ class MachineController
         $db->beginTransaction();
         try {
             // 1. Update machine profile type
+            // Auto-disable floater sensors: If both outlets are non-liquid (e.g. blower, tire_air) and template was carwash, switch to air_blower
+            $hasLiquid = false;
+            if (isset($_POST['services']) && is_array($_POST['services'])) {
+                foreach ($_POST['services'] as $item) {
+                    $icon = trim($item['icon'] ?? '');
+                    if ($icon === 'water' || $icon === 'soap') {
+                        $hasLiquid = true;
+                        break;
+                    }
+                }
+            }
+            if (!$hasLiquid && $template === 'carwash') {
+                $template = 'air_blower';
+            }
             $machineModel->updateMachineType($machineId, $template);
 
             // 2. Update LCD lines

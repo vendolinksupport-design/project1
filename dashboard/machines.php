@@ -381,9 +381,6 @@ function runtime_clock_label(int $seconds): string {
                                         Active: <?= e($typeBadge['label']) ?>
                                     </span>
                                 </div>
-                                <p class="text-slate-400 small mb-0 font-monospace" style="font-size: 0.78rem;">
-                                    Single Physical Controller Enclosure &bull; Real-Time LCD &amp; Dual Outlets
-                                </p>
                             </div>
 
                             <!-- Profile Switcher Dropdown -->
@@ -402,12 +399,12 @@ function runtime_clock_label(int $seconds): string {
                             </div>
                         </div>
 
-                        <!-- 1. DIRECT-EDITABLE 2004A LCD DISPLAY (Single Display, Redundant Inputs Removed) -->
+                        <!-- 1. DIRECT-EDITABLE LCD DISPLAY -->
                         <div class="mb-4">
                             <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <i class="bi bi-display text-info fs-6"></i>
-                                    <span class="small fw-bold text-slate-200 text-uppercase letter-spacing-1">Physical 2004A LCD Display (Type Directly on Screen)</span>
+                                    <span class="small fw-bold text-slate-200 text-uppercase letter-spacing-1">LCD Screen Display</span>
                                 </div>
                                 <div class="d-flex align-items-center gap-1.5">
                                     <button type="button" id="btnResetToProfile" class="btn btn-outline-secondary btn-sm py-0.5 px-2 text-slate-300" style="font-size: 0.72rem;" title="Reset lines to selected profile defaults">
@@ -421,13 +418,6 @@ function runtime_clock_label(int $seconds): string {
 
                             <!-- Single Direct-Editable 2004A Bezel -->
                             <div class="lcd-matrix-box">
-                                <div class="d-flex align-items-center justify-content-between pb-1.5 mb-2 border-bottom border-cyan-500 border-opacity-25 font-monospace text-info" style="font-size: 0.72rem;">
-                                    <span class="d-flex align-items-center gap-1.5">
-                                        <i class="bi bi-cpu"></i>HD44780 20x4 I2C MATRIX SCREEN (0x27)
-                                    </span>
-                                    <span class="badge bg-dark text-info border border-info border-opacity-50 font-monospace">DIRECT-EDIT LIVE</span>
-                                </div>
-
                                 <!-- 4 Directly Editable Lines (maxlength 20) -->
                                 <div class="d-flex flex-column gap-2">
                                     <div class="position-relative d-flex align-items-center">
@@ -450,11 +440,6 @@ function runtime_clock_label(int $seconds): string {
                                         <span id="cntLine4" class="position-absolute end-0 pe-3 font-monospace pointer-events-none" style="font-size: 0.7rem; color: rgba(103,232,249,0.5);">20/20</span>
                                     </div>
                                 </div>
-
-                                <div class="d-flex align-items-center justify-content-between text-muted small mt-2 pt-1 border-top border-cyan-500 border-opacity-25 font-monospace" style="font-size: 0.72rem; color: rgba(103,232,249,0.7) !important;">
-                                    <span><i class="bi bi-cursor-text me-1 text-info"></i>Click any line on the physical screen above to edit text directly</span>
-                                    <span><i class="bi bi-wifi text-info me-1"></i>Syncs with ESP32 screen over Wi-Fi</span>
-                                </div>
                             </div>
                         </div>
 
@@ -466,10 +451,10 @@ function runtime_clock_label(int $seconds): string {
                             <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <i class="bi bi-plug-fill text-info fs-5"></i>
-                                    <h5 class="fw-bold mb-0 text-white">Dual Switched Outlets &bull; Selectable Icons</h5>
+                                    <h5 class="fw-bold mb-0 text-white">Machine Outlets</h5>
                                 </div>
                                 <div class="text-success small font-monospace d-flex align-items-center gap-1">
-                                    <i class="bi bi-shield-check"></i>Float Sensors: <span id="floaterStatusText"><?= $machineType === 'carwash' ? 'Active (Water & Soap Tank Protection)' : 'Disabled (Auto-Off • Unplugged Safe)' ?></span>
+                                    <i class="bi bi-shield-check"></i>Tank Sensors: <span id="floaterStatusText"><?= $machineType === 'carwash' ? 'Active' : 'Disabled' ?></span>
                                 </div>
                             </div>
 
@@ -531,25 +516,25 @@ function runtime_clock_label(int $seconds): string {
                                                         </div>
                                                         <div class="row g-1" style="margin: 0;">
                                                             <div class="col-6 p-1">
-                                                                <button type="button" onclick="selectOutletIcon(<?= $outletNum ?>, 'water')" class="btn btn-sm w-100 d-flex align-items-center gap-1.5 p-1.5 rounded-2 text-start <?= $serviceIcon === 'water' ? 'btn-info text-dark fw-bold' : 'btn-dark text-slate-300 border border-secondary border-opacity-25' ?>" style="font-size: 0.75rem;">
+                                                                <button type="button" data-icon-key="water" onclick="selectOutletIcon(<?= $outletNum ?>, 'water')" class="btn btn-sm w-100 d-flex align-items-center gap-1.5 p-1.5 rounded-2 text-start icon-tab-opt <?= $serviceIcon === 'water' ? 'btn-info text-dark fw-bold' : 'btn-dark text-slate-300 border border-secondary border-opacity-25' ?>" style="font-size: 0.75rem;">
                                                                     <i class="bi bi-droplet-fill fs-6"></i>
                                                                     <span>Water</span>
                                                                 </button>
                                                             </div>
                                                             <div class="col-6 p-1">
-                                                                <button type="button" onclick="selectOutletIcon(<?= $outletNum ?>, 'soap')" class="btn btn-sm w-100 d-flex align-items-center gap-1.5 p-1.5 rounded-2 text-start <?= $serviceIcon === 'soap' ? 'btn-warning text-dark fw-bold' : 'btn-dark text-slate-300 border border-secondary border-opacity-25' ?>" style="font-size: 0.75rem;">
+                                                                <button type="button" data-icon-key="soap" onclick="selectOutletIcon(<?= $outletNum ?>, 'soap')" class="btn btn-sm w-100 d-flex align-items-center gap-1.5 p-1.5 rounded-2 text-start icon-tab-opt <?= $serviceIcon === 'soap' ? 'btn-warning text-dark fw-bold' : 'btn-dark text-slate-300 border border-secondary border-opacity-25' ?>" style="font-size: 0.75rem;">
                                                                     <i class="bi bi-stars fs-6"></i>
                                                                     <span>Soap</span>
                                                                 </button>
                                                             </div>
                                                             <div class="col-6 p-1">
-                                                                <button type="button" onclick="selectOutletIcon(<?= $outletNum ?>, 'tire_air')" class="btn btn-sm w-100 d-flex align-items-center gap-1.5 p-1.5 rounded-2 text-start <?= $serviceIcon === 'tire_air' ? 'btn-info text-dark fw-bold' : 'btn-dark text-slate-300 border border-secondary border-opacity-25' ?>" style="font-size: 0.75rem;">
+                                                                <button type="button" data-icon-key="tire_air" onclick="selectOutletIcon(<?= $outletNum ?>, 'tire_air')" class="btn btn-sm w-100 d-flex align-items-center gap-1.5 p-1.5 rounded-2 text-start icon-tab-opt <?= $serviceIcon === 'tire_air' ? 'btn-info text-dark fw-bold' : 'btn-dark text-slate-300 border border-secondary border-opacity-25' ?>" style="font-size: 0.75rem;">
                                                                     <i class="bi bi-speedometer2 fs-6"></i>
                                                                     <span>Tire Air</span>
                                                                 </button>
                                                             </div>
                                                             <div class="col-6 p-1">
-                                                                <button type="button" onclick="selectOutletIcon(<?= $outletNum ?>, 'blower')" class="btn btn-sm w-100 d-flex align-items-center gap-1.5 p-1.5 rounded-2 text-start <?= $serviceIcon === 'blower' ? 'btn-warning text-dark fw-bold' : 'btn-dark text-slate-300 border border-secondary border-opacity-25' ?>" style="font-size: 0.75rem;">
+                                                                <button type="button" data-icon-key="blower" onclick="selectOutletIcon(<?= $outletNum ?>, 'blower')" class="btn btn-sm w-100 d-flex align-items-center gap-1.5 p-1.5 rounded-2 text-start icon-tab-opt <?= $serviceIcon === 'blower' ? 'btn-warning text-dark fw-bold' : 'btn-dark text-slate-300 border border-secondary border-opacity-25' ?>" style="font-size: 0.75rem;">
                                                                     <i class="bi bi-wind fs-6"></i>
                                                                     <span>Blower</span>
                                                                 </button>
@@ -561,7 +546,7 @@ function runtime_clock_label(int $seconds): string {
                                                 <div>
                                                     <input type="text" name="services[<?= $serviceId ?>][name]" id="out<?= $outletNum ?>InputName" class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-25 fw-bold px-3 py-1.5 mb-1.5" style="min-width: 180px; max-width: 220px; font-size: 0.95rem;" value="<?= e($serviceTitle) ?>" title="Edit service display name">
                                                     <span class="badge font-monospace" style="background: rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.15); border: 1px solid rgba(<?= $outletNum === 1 ? '6,182,212' : '245,158,11' ?>,.35); color: <?= $outletNum === 1 ? '#22d3ee' : '#fbbf24' ?>; font-size: 0.72rem;">
-                                                        <i class="bi bi-plug-fill me-0.5"></i>Outlet <?= $outletNum ?> (GPIO <?= $gpioPin ?>)
+                                                        <i class="bi bi-plug-fill me-0.5"></i>Outlet <?= $outletNum ?>
                                                     </span>
                                                 </div>
                                             </div>
@@ -686,24 +671,28 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const iconTemplates = {
         water: {
+            name: 'Water Service',
             html: '<i class="bi bi-droplet-fill fs-5"></i>',
             style: 'background: rgba(6,182,212,.15); border: 1px solid rgba(6,182,212,.35); color: #22d3ee;',
             activeClass: 'btn-info text-dark fw-bold',
             type: 'water'
         },
         soap: {
+            name: 'Soap Service',
             html: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.5" cy="14.5" r="5" fill="rgba(245, 158, 11, 0.25)"/><path d="M8 12.5a2 2 0 0 1 2-1" stroke="#ffffff" stroke-width="1.2"/><circle cx="16" cy="8.5" r="3.5" fill="rgba(245, 158, 11, 0.25)"/><circle cx="6" cy="6" r="2" fill="rgba(245, 158, 11, 0.2)"/></svg>',
             style: 'background: rgba(245,158,11,.15); border: 1px solid rgba(245,158,11,.35); color: #fbbf24;',
             activeClass: 'btn-warning text-dark fw-bold',
             type: 'soap'
         },
         tire_air: {
+            name: 'Tire Air',
             html: '<i class="bi bi-speedometer2 fs-5"></i>',
             style: 'background: rgba(6,182,212,.15); border: 1px solid rgba(6,182,212,.35); color: #22d3ee;',
             activeClass: 'btn-info text-dark fw-bold',
             type: 'air'
         },
         blower: {
+            name: 'Blower',
             html: '<i class="bi bi-wind fs-5"></i>',
             style: 'background: rgba(245,158,11,.15); border: 1px solid rgba(245,158,11,.35); color: #fbbf24;',
             activeClass: 'btn-warning text-dark fw-bold',
@@ -737,6 +726,43 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     };
 
+    function updateTankSensorState() {
+        const out1IconInput = document.getElementById('out1InputIcon');
+        const out2IconInput = document.getElementById('out2InputIcon');
+        const out1Icon = out1IconInput ? out1IconInput.value : '';
+        const out2Icon = out2IconInput ? out2IconInput.value : '';
+
+        const nonTankIcons = ['tire_air', 'blower'];
+        const isOut1NonTank = nonTankIcons.includes(out1Icon);
+        const isOut2NonTank = nonTankIcons.includes(out2Icon);
+
+        const floaterStatusText = document.getElementById('floaterStatusText');
+        const machineTemplateSelect = document.getElementById('machineTemplateSelect');
+        const activeProfileBadge = document.getElementById('activeProfileBadge');
+        const saveBtnLabel = document.getElementById('saveBtnPresetLabel');
+
+        // If BOTH outlets are Tire Air or Blower: automatically disable floater sensors and switch template to air_blower!
+        if (isOut1NonTank && isOut2NonTank) {
+            if (floaterStatusText) {
+                floaterStatusText.textContent = 'Disabled';
+            }
+            if (machineTemplateSelect && machineTemplateSelect.value === 'carwash') {
+                machineTemplateSelect.value = 'air_blower';
+                if (activeProfileBadge) activeProfileBadge.textContent = 'Active: Tire Air & Blower';
+                if (saveBtnLabel) saveBtnLabel.textContent = 'Tire Air & Blower';
+            }
+        } else if (out1Icon === 'water' || out1Icon === 'soap' || out2Icon === 'water' || out2Icon === 'soap') {
+            if (floaterStatusText) {
+                floaterStatusText.textContent = 'Active';
+            }
+            if (machineTemplateSelect && machineTemplateSelect.value === 'air_blower' && (out1Icon === 'water' && out2Icon === 'soap')) {
+                machineTemplateSelect.value = 'carwash';
+                if (activeProfileBadge) activeProfileBadge.textContent = 'Active: Carwash Vendo';
+                if (saveBtnLabel) saveBtnLabel.textContent = 'Carwash Vendo';
+            }
+        }
+    }
+
     window.selectOutletIcon = function (outletNum, iconKey) {
         if (window.event) {
             window.event.preventDefault();
@@ -751,6 +777,14 @@ document.addEventListener('DOMContentLoaded', function () {
         if (iconInput) iconInput.value = iconKey;
         if (typeInput) typeInput.value = tmpl.type;
 
+        // Auto-update visible outlet service name while keeping manual typing optional
+        const nameInput = document.getElementById('out' + outletNum + 'InputName');
+        if (nameInput && tmpl.name) {
+            nameInput.value = tmpl.name;
+            nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+            nameInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
         // Update squircle badge preserving the edit pencil badge
         const badge = document.getElementById('out' + outletNum + 'IconBadge');
         if (badge) {
@@ -758,6 +792,23 @@ document.addEventListener('DOMContentLoaded', function () {
             badge.style.cssText = tmpl.style + ' cursor: pointer;';
             badge.setAttribute('style', tmpl.style + ' cursor: pointer;');
         }
+
+        // Dynamically update active highlight classes on buttons in the overlay popover
+        const overlay = document.getElementById('out' + outletNum + 'Overlay');
+        if (overlay) {
+            overlay.querySelectorAll('.icon-tab-opt').forEach(function (btn) {
+                const btnKey = btn.dataset.iconKey;
+                const btnTmpl = iconTemplates[btnKey];
+                if (btnKey === iconKey) {
+                    btn.className = 'btn btn-sm w-100 d-flex align-items-center gap-1.5 p-1.5 rounded-2 text-start icon-tab-opt ' + (btnTmpl ? btnTmpl.activeClass : 'btn-info text-dark fw-bold');
+                } else {
+                    btn.className = 'btn btn-sm w-100 d-flex align-items-center gap-1.5 p-1.5 rounded-2 text-start icon-tab-opt btn-dark text-slate-300 border border-secondary border-opacity-25';
+                }
+            });
+        }
+
+        // Automatically update floater sensor state when selecting Tire Air or Blower
+        updateTankSensorState();
 
         // Close overlay popover automatically upon selection
         window.closeIconOverlay(outletNum);
@@ -783,7 +834,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 'INSERT COIN FIRST!',
                 'WATER:P5 | SOAP:P5'
             ],
-            floater: 'Active (Water & Soap Tank Protection)',
+            floater: 'Active',
             outlets: [
                 { name: 'Water Service', icon: 'water', type: 'water' },
                 { name: 'Soap Service', icon: 'soap', type: 'soap' }
@@ -797,7 +848,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 'INSERT COIN FIRST!',
                 'AIR:P5  | BLOWER:P5'
             ],
-            floater: 'Disabled (Auto-Off \u2022 Unplugged Safe)',
+            floater: 'Disabled',
             outlets: [
                 { name: 'Tire Air Compressor', icon: 'tire_air', type: 'air' },
                 { name: 'Car Blower Fan', icon: 'blower', type: 'blower' }
@@ -811,7 +862,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 'INSERT P5 COIN NOW  ',
                 'FAST DUAL OPERATION '
             ],
-            floater: 'Disabled (Auto-Off \u2022 Unplugged Safe)',
+            floater: 'Disabled',
             outlets: [
                 { name: 'Custom Outlet 1', icon: 'water', type: 'water' },
                 { name: 'Custom Outlet 2', icon: 'soap', type: 'soap' }
@@ -825,7 +876,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 'INSERT P5 COIN NOW  ',
                 'FAST DUAL OPERATION '
             ],
-            floater: 'Disabled (Auto-Off \u2022 Unplugged Safe)',
+            floater: 'Disabled',
             outlets: [
                 { name: 'Custom Outlet 1', icon: 'tire_air', type: 'air' },
                 { name: 'Custom Outlet 2', icon: 'blower', type: 'blower' }
